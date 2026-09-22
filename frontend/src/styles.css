@@ -1,0 +1,5 @@
+/* Global reset and iOS-friendly defaults. */
+html { min-height: 100%; background: #f5f7f5; }
+body { min-height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+input, textarea, select { font-size: 16px; }

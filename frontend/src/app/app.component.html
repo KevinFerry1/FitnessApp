@@ -1,0 +1,194 @@
+<div class="app-shell">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">{{ today().date | date: 'EEEE, MMMM d' }}</p>
+      <h1>{{ activeTab() === 'today' ? greeting : (activeTab() | titlecase) }}</h1>
+    </div>
+    <button class="avatar" aria-label="Open profile" (click)="setTab('profile')">KF</button>
+  </header>
+
+  <main>
+    @if (loading()) {
+      <div class="loading-card"><span class="spinner"></span> Syncing your day…</div>
+    }
+
+    @if (activeTab() === 'today') {
+      <section class="today-view">
+        <article class="hero-card">
+          <div class="ring" [style.--progress]="caloriePercent + '%'">
+            <div class="ring-inner">
+              <strong>{{ caloriesRemaining | number }}</strong>
+              <span>kcal left</span>
+            </div>
+          </div>
+          <div class="hero-copy">
+            <span class="status-dot"></span><span class="status-label">ON TRACK</span>
+            <h2>{{ today().nutrition.calories | number }} <small>/ {{ calorieGoal | number }}</small></h2>
+            <p>Calories eaten today</p>
+          </div>
+        </article>
+
+        <div class="macro-row">
+          <article class="macro-card protein">
+            <div class="macro-head"><span>Protein</span><b>{{ today().nutrition.protein | number:'1.0-0' }}g</b></div>
+            <div class="bar"><i [style.width.%]="(today().nutrition.protein / proteinGoal) * 100"></i></div>
+            <small>{{ proteinGoal - today().nutrition.protein | number:'1.0-0' }}g remaining</small>
+          </article>
+          <article class="macro-card">
+            <div class="macro-head"><span>Weight</span><b>{{ today().latest_weight?.weight || '—' }}{{ today().latest_weight?.unit || '' }}</b></div>
+            <p>{{ today().latest_weight ? 'Latest check-in' : 'No check-in yet' }}</p>
+          </article>
+        </div>
+
+        <section class="section-block">
+          <div class="section-heading"><div><p class="eyebrow">FAST & SIMPLE</p><h2>Quick add</h2></div></div>
+          <div class="quick-grid">
+            <button class="quick food" (click)="open('food')"><span>＋</span><b>Add food</b><small>Calories & macros</small></button>
+            <button class="quick weight" (click)="open('weight')"><span>＋</span><b>Log weight</b><small>Daily check-in</small></button>
+            <button class="quick workout" (click)="activeWorkout() ? setTab('workout') : open('workout')"><span>▶</span><b>{{ activeWorkout() ? 'Keep training' : 'Start workout' }}</b><small>{{ activeWorkout() ? activeWorkout()?.name : 'Log sets quickly' }}</small></button>
+          </div>
+        </section>
+
+        <section class="section-block">
+          <div class="section-heading"><h2>Today</h2><button (click)="setTab('food')">View all</button></div>
+          @if (today().food_logs.length === 0 && today().workouts.length === 0) {
+            <article class="empty-state"><span>✦</span><h3>Your day is wide open</h3><p>Add food or start a workout. Your entries will show up here.</p></article>
+          }
+          @for (log of today().food_logs; track log.id) {
+            <article class="timeline-item"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></article>
+          }
+          @for (workout of today().workouts; track workout.id) {
+            <article class="timeline-item"><div class="item-icon purple">◇</div><div><small>Workout</small><h3>{{ workout.name }}</h3><p>{{ workout.workout_exercises.length }} exercises</p></div><b>{{ workout.completed_at ? 'Done' : 'Active' }}</b></article>
+          }
+        </section>
+      </section>
+    }
+
+    @if (activeTab() === 'food') {
+      <section class="page-view">
+        <article class="summary-strip"><div><small>Consumed today</small><strong>{{ today().nutrition.calories | number }} kcal</strong></div><div><small>Remaining</small><strong>{{ caloriesRemaining | number }} kcal</strong></div></article>
+        <button class="primary wide" (click)="open('food')">＋ Add food</button>
+        <div class="section-heading"><h2>Today's food</h2></div>
+        @for (log of today().food_logs; track log.id) {
+          <article class="timeline-item"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></article>
+        } @empty {
+          <article class="empty-state compact"><h3>No food logged yet</h3><p>Your latest foods will be easy to reuse here.</p></article>
+        }
+      </section>
+    }
+
+    @if (activeTab() === 'workout') {
+      <section class="page-view workout-view">
+        @if (activeWorkout(); as workout) {
+          <article class="active-workout-head"><div><p class="eyebrow">ACTIVE WORKOUT</p><h2>{{ workout.name }}</h2><p>Started {{ workout.started_at | date:'shortTime' }}</p></div><span class="live-pill"><i></i> LIVE</span></article>
+          @for (exercise of workout.workout_exercises; track exercise.id) {
+            <article class="exercise-card" [class.selected]="selectedExercise?.id === exercise.id" (click)="selectExercise(exercise)">
+              <div class="exercise-title"><div><h3>{{ exercise.exercise.name }}</h3><p>{{ exercise.sets.length }} set{{ exercise.sets.length === 1 ? '' : 's' }}</p></div><span>›</span></div>
+              <div class="set-chips">@for (set of exercise.sets; track set.id) { <span>{{ set.weight || '—' }} {{ set.weight_unit }} × {{ set.reps }}</span> }</div>
+              @if (selectedExercise?.id === exercise.id) {
+                <div class="set-entry" (click)="$event.stopPropagation()">
+                  <label><span>Weight (lb)</span><input inputmode="decimal" type="number" [(ngModel)]="setForm.weight" placeholder="185"></label>
+                  <label><span>Reps</span><input inputmode="numeric" type="number" [(ngModel)]="setForm.reps" placeholder="8"></label>
+                  <button class="primary" (click)="addSet(exercise)" [disabled]="saving() || setForm.reps === null">Save set</button>
+                </div>
+              }
+            </article>
+          } @empty {
+            <article class="empty-state"><span>◇</span><h3>Add your first exercise</h3><p>Then each new set is only two numbers and one tap.</p></article>
+          }
+          <button class="secondary wide" (click)="open('exercise')">＋ Add exercise</button>
+          <button class="finish-button" (click)="finishWorkout()" [disabled]="saving()">Finish workout</button>
+        } @else {
+          <article class="empty-state workout-empty"><span>◇</span><h2>Ready when you are</h2><p>Start a session and log each set without leaving this screen.</p><button class="primary" (click)="open('workout')">Start workout</button></article>
+          <button class="import-callout" (click)="open('import')"><span>⇩</span><div><b>Import from Notes</b><small>Bring in your existing workout history</small></div><i>›</i></button>
+        }
+      </section>
+    }
+
+    @if (activeTab() === 'progress') {
+      <section class="page-view">
+        <button class="import-callout" (click)="open('import')"><span>⇩</span><div><b>Import Apple Notes history</b><small>Paste your existing workout log</small></div><i>›</i></button>
+        <div class="section-heading"><div><p class="eyebrow">YOUR TRAINING</p><h2>Workout history</h2></div></div>
+        @for (workout of workouts(); track workout.id) {
+          <article class="history-card">
+            <div class="history-date"><b>{{ workout.started_at | date:'d' }}</b><small>{{ workout.started_at | date:'MMM' | uppercase }}</small></div>
+            <div><h3>{{ workout.name }}</h3><p>{{ workout.workout_exercises.length }} exercises · {{ workout.completed_at ? 'Completed' : 'In progress' }}</p></div><span>›</span>
+          </article>
+        } @empty {
+          <article class="empty-state"><h3>No history yet</h3><p>Import your Notes log or finish your first workout.</p></article>
+        }
+      </section>
+    }
+
+    @if (activeTab() === 'profile') {
+      <section class="page-view">
+        <article class="profile-card"><div class="large-avatar">KF</div><div><h2>Your profile</h2><p>Local development account</p></div></article>
+        <div class="settings-list"><button><span>Daily calorie goal</span><b>{{ calorieGoal | number }} kcal</b></button><button><span>Protein goal</span><b>{{ proteinGoal }} g</b></button><button><span>Weight units</span><b>lb</b></button><button (click)="open('import')"><span>Import workout notes</span><b>›</b></button></div>
+      </section>
+    }
+  </main>
+
+  <nav class="bottom-nav" aria-label="Main navigation">
+    @for (tab of tabs; track tab.id) {
+      <button [class.active]="activeTab() === tab.id" (click)="setTab(tab.id)"><span>{{ tab.icon }}</span><small>{{ tab.label }}</small></button>
+    }
+  </nav>
+</div>
+
+@if (activeSheet(); as sheet) {
+  <div class="sheet-backdrop" (click)="close()"></div>
+  <section class="sheet" [class.tall]="sheet === 'import'" role="dialog" aria-modal="true">
+    <div class="grabber"></div>
+    <button class="close-button" (click)="close()" aria-label="Close">×</button>
+
+    @if (sheet === 'food') {
+      <p class="eyebrow">QUICK LOG</p><h2>Add food</h2><p class="sheet-subtitle">One serving. You can fine-tune it later.</p>
+      <label class="field"><span>Food name</span><input autofocus [(ngModel)]="foodForm.name" placeholder="Chicken bowl"></label>
+      <div class="field-row"><label class="field"><span>Calories</span><input type="number" inputmode="numeric" [(ngModel)]="foodForm.calories" placeholder="650"></label><label class="field"><span>Protein (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.protein" placeholder="40"></label></div>
+      <div class="field-row"><label class="field"><span>Carbs (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.carbs" placeholder="60"></label><label class="field"><span>Fat (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.fat" placeholder="18"></label></div>
+      <label class="field"><span>Meal</span><select [(ngModel)]="foodForm.meal_type"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select></label>
+      <button class="primary wide" (click)="addFood()" [disabled]="saving() || !foodForm.name || foodForm.calories === null">{{ saving() ? 'Saving…' : 'Add food' }}</button>
+    }
+
+    @if (sheet === 'weight') {
+      <p class="eyebrow">DAILY CHECK-IN</p><h2>Log weight</h2><p class="sheet-subtitle">Consistency matters more than precision.</p>
+      <div class="weight-input"><input autofocus type="number" inputmode="decimal" [(ngModel)]="weightForm.weight" placeholder="180.0"><span>{{ weightForm.unit }}</span></div>
+      <label class="field"><span>Note (optional)</span><input [(ngModel)]="weightForm.notes" placeholder="Morning, before breakfast"></label>
+      <button class="primary wide" (click)="addWeight()" [disabled]="saving() || weightForm.weight === null">{{ saving() ? 'Saving…' : 'Save weight' }}</button>
+    }
+
+    @if (sheet === 'workout') {
+      <p class="eyebrow">NEW SESSION</p><h2>Start a workout</h2><p class="sheet-subtitle">Name it however you normally do.</p>
+      <label class="field"><span>Workout name</span><input autofocus [(ngModel)]="workoutName" placeholder="Upper A"></label>
+      <button class="primary wide" (click)="startWorkout()" [disabled]="saving()">{{ saving() ? 'Starting…' : 'Start workout' }}</button>
+    }
+
+    @if (sheet === 'exercise') {
+      <p class="eyebrow">ACTIVE WORKOUT</p><h2>Add exercise</h2><p class="sheet-subtitle">Use the name you recognize at a glance.</p>
+      <label class="field"><span>Exercise name</span><input autofocus [(ngModel)]="exerciseName" placeholder="Bench press" (keyup.enter)="addExercise()"></label>
+      <button class="primary wide" (click)="addExercise()" [disabled]="saving() || !exerciseName.trim()">{{ saving() ? 'Adding…' : 'Add exercise' }}</button>
+    }
+
+    @if (sheet === 'import') {
+      <p class="eyebrow">WORKOUT HISTORY</p><h2>Import from Notes</h2><p class="sheet-subtitle">Paste your note. Nothing is saved until you confirm the preview.</p>
+      <div class="format-tip"><b>Recognized format</b><code>9/21/26 upper B<br>Chest fly 2x7,6 25lb (4)</code></div>
+      <label class="field"><span>Your Notes text</span><textarea [(ngModel)]="notesText" rows="8" placeholder="Paste one or many workouts here…"></textarea></label>
+      @if (!importPreview()) {
+        <button class="primary wide" (click)="previewImport()" [disabled]="saving() || !notesText.trim()">{{ saving() ? 'Reading…' : 'Preview import' }}</button>
+      } @else {
+        <div class="preview-summary"><div><b>{{ importPreview()!.workouts.length }}</b><span>workouts</span></div><div><b>{{ firstImportedExerciseCount }}</b><span>first workout exercises</span></div><div><b>{{ importPreview()!.warnings.length }}</b><span>needs review</span></div></div>
+        <div class="preview-list">
+          @for (workout of importPreview()!.workouts; track workout.date + workout.name) {
+            <article><div><b>{{ workout.name }}</b><small>{{ workout.date }}</small></div><span>{{ workout.exercises.length }} exercises</span></article>
+          }
+          @for (warning of importPreview()!.warnings; track warning.line) {
+            <article class="warning"><div><b>Line {{ warning.line }} skipped</b><small>{{ warning.text }}</small></div><span>Review</span></article>
+          }
+        </div>
+        <div class="sheet-actions"><button class="secondary" (click)="importPreview.set(null)">Edit</button><button class="primary" (click)="commitImport()" [disabled]="saving()">{{ saving() ? 'Importing…' : 'Import workouts' }}</button></div>
+      }
+    }
+  </section>
+}
+
+@if (toast()) { <div class="toast">✓ {{ toast() }}</div> }
