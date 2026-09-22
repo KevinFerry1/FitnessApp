@@ -5,15 +5,15 @@
 The repository is a small monorepo with a separately buildable Angular client and Django API.
 
 ```text
-iPhone/Desktop browser
-        │ HTTPS / JSON
+iPhone/Desktop browser on Tailscale
+        │ private HTTPS :8443
         ▼
-Angular PWA ── /api/* ── Django REST Framework ── PostgreSQL
-     │                                  │
-service-worker shell             relational history
+Pi Tailscale Serve ── Gunicorn + WhiteNoise ── Angular PWA / Django API ── SQLite
+                                                    │                         │
+                                          IndexedDB offline queue       relational history
 ```
 
-During local development, Angular runs on `:4200` and proxies `/api` to Django on `:8000`. In production, a reverse proxy should serve the Angular build and forward `/api` to Django under the same origin.
+During local development, Angular runs on `:4200` and proxies `/api` to Django on `:8000`. On the Pi, Tailscale Serve proxies private HTTPS to loopback Gunicorn; WhiteNoise serves the Angular build from the same origin as Django. PostgreSQL remains an optional local/deployment backend.
 
 ## Backend
 
@@ -30,14 +30,16 @@ The API currently exposes:
 - `/api/workout-exercises/`
 - `/api/exercise-sets/`
 - `/api/imports/notes/` (`commit: false` previews, `commit: true` writes transactionally)
+- `/api/profile/` (single-user settings)
+- `/api/sync/` (idempotent offline mutation replay)
 
-Models already include nullable ownership seams so authentication can be enforced without redesigning history. Before deployment, change the default permission policy and filter every queryset to the authenticated user.
+The current Pi deployment is private to the tailnet and intentionally has one shared profile without app-level login. Nullable ownership fields remain as seams for eventual accounts. Before public or multi-user access, add authentication, strict per-user filtering, and authorization checks.
 
 ## Frontend
 
 The Angular app uses standalone components, signals for screen state, and `HttpClient` for REST calls. The current single shell intentionally keeps the MVP compact. As it grows, split each main tab into lazy routes and move API calls into typed feature services.
 
-The production build registers Angular's service worker and caches the application shell. API writes still require a connection; a future offline layer should write pending mutations to IndexedDB with idempotency keys and replay them when connectivity returns.
+The production build registers Angular's service worker and caches the application shell. Food, weight, profile, and workout writes first enter an IndexedDB mutation queue. The app retries in order when it is open and the Pi becomes reachable, and shows the pending count. The backend uses client UUIDs for idempotent food/weight writes and revisioned workout snapshots. Cached dashboard/history responses and active workout drafts remain readable offline. iOS may suspend a closed PWA, so synchronization is not guaranteed until the app is reopened.
 
 ## Data integrity choices
 
@@ -49,12 +51,12 @@ The production build registers Angular's service worker and caches the applicati
 
 ## Environment variables
 
-See `.env.example`. PostgreSQL is selected whenever `POSTGRES_DB` exists; otherwise local SQLite is used. Do not use the development secret or permissive API policy in production.
+See `.env.example`. PostgreSQL is selected whenever `POSTGRES_DB` exists; otherwise SQLite is used. The Pi stores a generated production secret and SQLite file under `~/fitnessapp-data`; Gunicorn binds only to loopback and Tailscale Serve restricts access to the tailnet. Do not expose the permissive API to the public internet.
 
 ## Next production hardening
 
 1. Token or session authentication and strict per-user query filtering
-2. Deployed PostgreSQL, secrets management, HTTPS, and CI
-3. API pagination, input constraints, observability, and backups
-4. IndexedDB caching and offline mutation reconciliation
+2. CI, API pagination, and observability
+3. Off-device backups (daily Pi backups are on the same SD card)
+4. Conflict handling for simultaneous edits from multiple devices
 5. Exercise/food reuse endpoints so duplicates are not created during quick entry

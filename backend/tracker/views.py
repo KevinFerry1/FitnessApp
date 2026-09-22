@@ -1,14 +1,16 @@
 from datetime import datetime, time
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .importer import parse_notes
-from .models import BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, Workout, WorkoutExercise
+from .models import BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, NotesImportBatch, Workout, WorkoutExercise
 from .serializers import (
     BodyWeightEntrySerializer,
     ExerciseSerializer,
@@ -103,8 +105,19 @@ class NotesImportView(APIView):
         if not commit:
             return Response({"workouts": parsed, "warnings": warnings, "committed": False})
 
+        raw_client_id = request.data.get("client_id")
+        try:
+            client_id = UUID(str(raw_client_id)) if raw_client_id else None
+        except ValueError as exc:
+            raise ValidationError({"client_id": "Must be a valid UUID"}) from exc
+
         created_ids = []
         with transaction.atomic():
+            if client_id:
+                previous = NotesImportBatch.objects.filter(client_id=client_id).first()
+                if previous:
+                    return Response({"workouts": parsed, "warnings": warnings, "committed": True,
+                                     "created_workout_ids": previous.workout_ids, "duplicate": True})
             for parsed_workout in workouts:
                 started_at = timezone.make_aware(datetime.combine(parsed_workout.workout_date, time(hour=12)))
                 workout = Workout.objects.create(
@@ -140,6 +153,8 @@ class NotesImportView(APIView):
                             for item in parsed_exercise.sets
                         ]
                     )
+            if client_id:
+                NotesImportBatch.objects.create(client_id=client_id, workout_ids=created_ids)
         return Response(
             {"workouts": parsed, "warnings": warnings, "committed": True, "created_workout_ids": created_ids},
             status=status.HTTP_201_CREATED,

@@ -4,10 +4,19 @@
       <p class="eyebrow">{{ today().date | date: 'EEEE, MMMM d' }}</p>
       <h1>{{ activeTab() === 'today' ? greeting : (activeTab() | titlecase) }}</h1>
     </div>
-    <button class="avatar" aria-label="Open profile" (click)="setTab('profile')">KF</button>
+    <button class="avatar" aria-label="Open profile" (click)="setTab('profile')">{{ initials }}</button>
   </header>
 
   <main>
+    @if (!offline.storageAvailable()) {
+      <div class="sync-banner"><span>Offline storage unavailable</span><small>This browser can save only while connected. Check browser storage settings.</small></div>
+    }
+    @if (offline.pendingCount() > 0 || offline.syncError()) {
+      <button class="sync-banner" (click)="offline.retry()">
+        <span>{{ offline.syncing() ? 'Syncing…' : offline.pendingCount() + ' saved change' + (offline.pendingCount() === 1 ? '' : 's') + ' waiting to sync' }}</span>
+        <small>{{ offline.syncError() || 'Tap to retry now' }}</small>
+      </button>
+    }
     @if (loading()) {
       <div class="loading-card"><span class="spinner"></span> Syncing your day…</div>
     }
@@ -87,7 +96,7 @@
               <div class="set-chips">@for (set of exercise.sets; track set.id) { <span>{{ set.weight || '—' }} {{ set.weight_unit }} × {{ set.reps }}</span> }</div>
               @if (selectedExercise?.id === exercise.id) {
                 <div class="set-entry" (click)="$event.stopPropagation()">
-                  <label><span>Weight (lb)</span><input inputmode="decimal" type="number" [(ngModel)]="setForm.weight" placeholder="185"></label>
+                  <label><span>Weight ({{ profile().preferred_weight_unit }})</span><input inputmode="decimal" type="number" [(ngModel)]="setForm.weight" placeholder="185"></label>
                   <label><span>Reps</span><input inputmode="numeric" type="number" [(ngModel)]="setForm.reps" placeholder="8"></label>
                   <button class="primary" (click)="addSet(exercise)" [disabled]="saving() || setForm.reps === null">Save set</button>
                 </div>
@@ -110,10 +119,17 @@
         <button class="import-callout" (click)="open('import')"><span>⇩</span><div><b>Import Apple Notes history</b><small>Paste your existing workout log</small></div><i>›</i></button>
         <div class="section-heading"><div><p class="eyebrow">YOUR TRAINING</p><h2>Workout history</h2></div></div>
         @for (workout of workouts(); track workout.id) {
-          <article class="history-card">
+          <button class="history-card history-button" (click)="expandedWorkoutId.set(expandedWorkoutId() === workout.id ? null : workout.id)" [attr.aria-expanded]="expandedWorkoutId() === workout.id">
             <div class="history-date"><b>{{ workout.started_at | date:'d' }}</b><small>{{ workout.started_at | date:'MMM' | uppercase }}</small></div>
-            <div><h3>{{ workout.name }}</h3><p>{{ workout.workout_exercises.length }} exercises · {{ workout.completed_at ? 'Completed' : 'In progress' }}</p></div><span>›</span>
-          </article>
+            <div><h3>{{ workout.name }}</h3><p>{{ workout.workout_exercises.length }} exercises · {{ workout.completed_at ? 'Completed' : 'In progress' }}</p></div><span>{{ expandedWorkoutId() === workout.id ? '⌄' : '›' }}</span>
+          </button>
+          @if (expandedWorkoutId() === workout.id) {
+            <div class="history-detail">
+              @for (exercise of workout.workout_exercises; track exercise.id) {
+                <div class="history-exercise"><b>{{ exercise.exercise.name }}</b><p>@for (set of exercise.sets; track set.id) { <span>{{ set.weight ?? '—' }} {{ set.weight_unit }} × {{ set.reps }}{{ $last ? '' : ' · ' }}</span> }</p>@if (exercise.notes) { <small>{{ exercise.notes }}</small> }</div>
+              } @empty { <p>No exercises recorded.</p> }
+            </div>
+          }
         } @empty {
           <article class="empty-state"><h3>No history yet</h3><p>Import your Notes log or finish your first workout.</p></article>
         }
@@ -122,8 +138,10 @@
 
     @if (activeTab() === 'profile') {
       <section class="page-view">
-        <article class="profile-card"><div class="large-avatar">KF</div><div><h2>Your profile</h2><p>Local development account</p></div></article>
-        <div class="settings-list"><button><span>Daily calorie goal</span><b>{{ calorieGoal | number }} kcal</b></button><button><span>Protein goal</span><b>{{ proteinGoal }} g</b></button><button><span>Weight units</span><b>lb</b></button><button (click)="open('import')"><span>Import workout notes</span><b>›</b></button></div>
+        <article class="profile-card"><div class="large-avatar">{{ initials }}</div><div><h2>{{ profile().display_name }}</h2><p>Private tracker on your Tailscale network</p></div></article>
+        <div class="settings-list"><button (click)="open('profile')"><span>Daily calorie goal</span><b>{{ calorieGoal | number }} kcal</b></button><button (click)="open('profile')"><span>Protein goal</span><b>{{ proteinGoal }} g</b></button><button (click)="open('profile')"><span>Weight units</span><b>{{ profile().preferred_weight_unit }}</b></button><button (click)="open('import')"><span>Import workout notes</span><b>›</b></button></div>
+        <button class="secondary wide profile-edit" (click)="open('profile')">Edit profile settings</button>
+        <p class="profile-note">Changes are saved on this device first and sync to the Pi when connected. {{ offline.pendingCount() }} pending.</p>
       </section>
     }
   </main>
@@ -169,10 +187,18 @@
       <button class="primary wide" (click)="addExercise()" [disabled]="saving() || !exerciseName.trim()">{{ saving() ? 'Adding…' : 'Add exercise' }}</button>
     }
 
+    @if (sheet === 'profile') {
+      <p class="eyebrow">YOUR SETTINGS</p><h2>Edit profile</h2><p class="sheet-subtitle">These goals and units are saved on the Pi and shared across your devices.</p>
+      <label class="field"><span>Name</span><input [(ngModel)]="profileForm.display_name" maxlength="80" placeholder="Your name"></label>
+      <div class="field-row"><label class="field"><span>Daily calories</span><input type="number" inputmode="numeric" min="1" [(ngModel)]="profileForm.calorie_goal"></label><label class="field"><span>Protein goal (g)</span><input type="number" inputmode="numeric" min="1" [(ngModel)]="profileForm.protein_goal"></label></div>
+      <label class="field"><span>Weight unit for new logs</span><select [(ngModel)]="profileForm.preferred_weight_unit"><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>
+      <button class="primary wide" (click)="saveProfile()" [disabled]="saving() || profileForm.calorie_goal < 1 || profileForm.protein_goal < 1">{{ saving() ? 'Saving…' : 'Save settings' }}</button>
+    }
+
     @if (sheet === 'import') {
       <p class="eyebrow">WORKOUT HISTORY</p><h2>Import from Notes</h2><p class="sheet-subtitle">Paste your note. Nothing is saved until you confirm the preview.</p>
       <div class="format-tip"><b>Recognized format</b><code>9/21/26 upper B<br>Chest fly 2x7,6 25lb (4)</code></div>
-      <label class="field"><span>Your Notes text</span><textarea [(ngModel)]="notesText" rows="8" placeholder="Paste one or many workouts here…"></textarea></label>
+      <label class="field"><span>Your Notes text</span><textarea [(ngModel)]="notesText" (ngModelChange)="noteTextChanged()" [readOnly]="!!importPreview()" rows="8" placeholder="Paste one or many workouts here…"></textarea></label>
       @if (!importPreview()) {
         <button class="primary wide" (click)="previewImport()" [disabled]="saving() || !notesText.trim()">{{ saving() ? 'Reading…' : 'Preview import' }}</button>
       } @else {

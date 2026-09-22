@@ -12,6 +12,7 @@ from .views import (
     WorkoutExerciseViewSet,
     WorkoutViewSet,
 )
+from .sync import ProfileView, SyncView
 
 router = DefaultRouter()
 router.register("foods", FoodViewSet)
@@ -26,4 +27,6 @@ urlpatterns = [
     path("", include(router.urls)),
     path("today/", TodayView.as_view(), name="today"),
     path("imports/notes/", NotesImportView.as_view(), name="notes-import"),
+    path("profile/", ProfileView.as_view(), name="profile"),
+    path("sync/", SyncView.as_view(), name="sync"),
 ]

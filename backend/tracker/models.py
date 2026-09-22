@@ -22,6 +22,30 @@ class UserProfile(TimeStampedModel):
     timezone = models.CharField(max_length=64, default="America/New_York")
 
 
+class AppSettings(TimeStampedModel):
+    """Settings for this private, single-user tailnet deployment."""
+
+    display_name = models.CharField(max_length=80, default="Your profile")
+    calorie_goal = models.PositiveIntegerField(default=2800)
+    protein_goal = models.PositiveIntegerField(default=180)
+    preferred_weight_unit = models.CharField(max_length=2, choices=[("lb", "lb"), ("kg", "kg")], default="lb")
+
+
+class NotesImportBatch(models.Model):
+    client_id = models.UUIDField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    workout_ids = models.JSONField(default=list)
+
+
+class ClientMutationId(models.Model):
+    """UUID mixin lets retries after a dropped response avoid duplicate logs."""
+
+    client_id = models.UUIDField(unique=True, null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+
 class Food(TimeStampedModel):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="foods")
     name = models.CharField(max_length=160)
@@ -39,7 +63,7 @@ class Food(TimeStampedModel):
         return self.name
 
 
-class FoodLog(TimeStampedModel):
+class FoodLog(ClientMutationId, TimeStampedModel):
     MEALS = [(value, value.title()) for value in ("breakfast", "lunch", "dinner", "snack")]
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="food_logs")
     food = models.ForeignKey(Food, null=True, blank=True, on_delete=models.SET_NULL, related_name="logs")
@@ -56,7 +80,7 @@ class FoodLog(TimeStampedModel):
         ordering = ["-logged_at"]
 
 
-class BodyWeightEntry(TimeStampedModel):
+class BodyWeightEntry(ClientMutationId, TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="weight_entries")
     weight = models.DecimalField(max_digits=6, decimal_places=2)
     unit = models.CharField(max_length=2, choices=[("lb", "lb"), ("kg", "kg")], default="lb")
@@ -80,13 +104,14 @@ class Exercise(TimeStampedModel):
         return self.name
 
 
-class Workout(TimeStampedModel):
+class Workout(ClientMutationId, TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="workouts")
     name = models.CharField(max_length=160, default="Workout")
     started_at = models.DateTimeField()
     completed_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
     import_source = models.CharField(max_length=32, blank=True)
+    sync_revision = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ["-started_at"]

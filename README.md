@@ -10,6 +10,8 @@ A mobile-first calorie, bodyweight, and gym-workout tracker. The MVP is an insta
 - Start/finish workouts, add exercises, and rapidly save weight/reps sets
 - Workout history
 - Apple Notes workout import with a review-before-save preview
+- Editable name, calorie goal, protein goal, and weight-unit preferences
+- Offline food, bodyweight, and workout draft logging with queued replay and a pending-sync indicator
 - Responsive iPhone-first UI and production service worker/manifest
 - Full REST endpoints for all core entities
 
@@ -64,6 +66,12 @@ Hip thrust 2x7,7 2.25 plates
 ```
 
 Single weights repeat across all sets; comma-separated weights map set-by-set; parenthetical machine settings are preserved as exercise notes. See [docs/NOTES_IMPORT.md](docs/NOTES_IMPORT.md).
+
+The note text is kept as an on-device draft until you confirm. Preview and import require a connection to the Pi. A confirmed import is retry-safe if its response is lost, but intentionally importing the same note again as a new import will duplicate those workouts.
+
+## Offline behavior
+
+After the first online load, the PWA shell and previously viewed dashboard/history can open offline. Food, bodyweight, profile edits, and complete workout drafts are saved to IndexedDB before network submission. A banner shows how many changes are waiting; tapping it retries. The app also retries while open, when the browser reports connectivity, and when brought back to the foreground. Keep the app installed on the same phone until the banner reaches zero—clearing browser/site data discards unsynced changes. A closed iPhone PWA cannot be relied on for background sync; reopen it when the Pi is reachable. Simultaneous edits of one workout from multiple devices are not yet merged.
 
 ## Repository map
 

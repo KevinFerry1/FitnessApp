@@ -32,6 +32,10 @@ set +a
 if [[ -f "$FITNESS_DB_PATH" ]]; then
   "$app_dir/.venv/bin/python" "$app_dir/deploy/pi/backup.py"
 fi
+if systemctl --user is-active --quiet fitnessapp.service; then
+  systemctl --user stop fitnessapp.service
+fi
+trap 'systemctl --user start fitnessapp.service || true' EXIT
 "$app_dir/.venv/bin/python" "$app_dir/backend/manage.py" migrate --noinput
 "$app_dir/.venv/bin/python" "$app_dir/backend/manage.py" check --deploy
 
@@ -43,5 +47,6 @@ systemctl --user enable fitnessapp.service
 systemctl --user enable --now fitnessapp-backup.timer
 systemctl --user restart fitnessapp.service
 systemctl --user is-active --quiet fitnessapp.service
+trap - EXIT
 
 echo "FitnessApp is listening on 127.0.0.1:8080."
