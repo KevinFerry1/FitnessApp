@@ -25,6 +25,8 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-local-developm
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
+if not DEBUG and SECRET_KEY == "django-insecure-local-development-only":
+    raise RuntimeError("DJANGO_SECRET_KEY must be set in production")
 
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")]
 
@@ -90,8 +92,8 @@ if os.environ.get("POSTGRES_DB"):
         }
     }
 else:
-    # Zero-setup development fallback. Production is expected to provide PostgreSQL env vars.
-    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
+    # SQLite keeps the single-user Pi deployment lightweight; PostgreSQL remains optional.
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": os.environ.get("FITNESS_DB_PATH", BASE_DIR / "db.sqlite3")}}
 
 
 # Password validation
@@ -135,10 +137,13 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:4200").split(",")
-]
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:4200").split(",") if origin.strip()]
+
+if not DEBUG:
+    # Only the loopback-only reverse proxy can reach Gunicorn in the Pi deployment.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],

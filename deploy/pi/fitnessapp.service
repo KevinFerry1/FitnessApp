@@ -1,0 +1,15 @@
+[Unit]
+Description=FitnessApp private web app
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/fitnessapp/backend
+EnvironmentFile=%h/fitnessapp-data/fitnessapp.env
+ExecStart=%h/fitnessapp/.venv/bin/gunicorn --bind 127.0.0.1:8080 --workers 1 --threads 2 --timeout 60 --access-logfile - config.serve:application
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

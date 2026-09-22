@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up FitnessApp SQLite database
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/fitnessapp-data/fitnessapp.env
+ExecStart=/usr/bin/python3 %h/fitnessapp/deploy/pi/backup.py
+UMask=0077
