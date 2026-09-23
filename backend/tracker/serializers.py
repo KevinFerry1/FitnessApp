@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, Workout, WorkoutExercise
+from .models import BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, SavedMeal, Workout, WorkoutExercise
 
 
 class FoodSerializer(serializers.ModelSerializer):
@@ -15,6 +15,12 @@ class FoodLogSerializer(serializers.ModelSerializer):
         model = FoodLog
         fields = "__all__"
         read_only_fields = ("user",)
+
+
+class SavedMealSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SavedMeal
+        fields = ("id", "name", "serving_description", "meal_type", "calories", "protein", "carbohydrates", "fat")
 
 
 class BodyWeightEntrySerializer(serializers.ModelSerializer):

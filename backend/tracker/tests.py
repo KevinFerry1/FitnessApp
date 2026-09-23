@@ -1,8 +1,10 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
+from unittest.mock import patch
+from io import BytesIO
 
 from .importer import parse_exercise_line, parse_notes
-from .models import AppSettings, BodyWeightEntry, ExerciseSet, FoodLog, Workout
+from .models import AppSettings, BodyWeightEntry, ExerciseSet, FoodLog, SavedMeal, Workout
 
 
 class NotesParserTests(TestCase):
@@ -105,5 +107,63 @@ class OfflineSyncTests(TestCase):
         self.assertEqual(Workout.objects.count(), 1)
         self.assertEqual(ExerciseSet.objects.count(), 2)
         self.assertEqual(Workout.objects.get().sync_revision, 2)
+
+    def test_imported_workout_can_be_edited_and_deleted_idempotently(self):
+        imported = self.client.post("/api/imports/notes/", {
+            "text": "9/21/26 upper B\nChest fly 2x7,6 25lb (seat 4)", "commit": True,
+        }, format="json")
+        workout_id = imported.data["created_workout_ids"][0]
+        client_id = "9d44172b-19e9-41d2-a1c4-8b4d153f7ea4"
+        edited = {"kind": "workout", "client_id": client_id, "payload": {
+            "server_id": workout_id, "revision": 1, "name": "Upper B edited",
+            "started_at": "2026-09-20T12:00:00-04:00", "completed_at": "2026-09-20T12:00:00-04:00",
+            "notes": "Felt good", "exercises": [{"name": "Chest fly", "notes": "Seat 5",
+                "sets": [{"set_number": 1, "weight": 30, "weight_unit": "lb", "reps": 8,
+                          "set_type": "drop", "performed_at": "2026-09-20T12:00:00-04:00"}]}],
+        }}
+        self.assertEqual(self.client.post("/api/sync/", edited, format="json").status_code, 200)
+        self.assertEqual(Workout.objects.get(pk=workout_id).name, "Upper B edited")
+        self.assertEqual(ExerciseSet.objects.count(), 1)
+        self.assertEqual(ExerciseSet.objects.get().set_type, "drop")
+        deleted = {"kind": "workout_delete", "client_id": client_id,
+                   "payload": {"server_id": workout_id, "workout_client_id": client_id}}
+        self.assertEqual(self.client.post("/api/sync/", deleted, format="json").data["deleted"], True)
+        self.assertEqual(self.client.post("/api/sync/", deleted, format="json").data["deleted"], False)
+        self.assertEqual(Workout.objects.count(), 0)
+
+
+class FoodFeaturesTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_saved_meal_crud_and_food_snapshot(self):
+        meal = {"name": "Oat bowl", "serving_description": "1 bowl", "meal_type": "breakfast",
+                "calories": 450, "protein": 30, "carbohydrates": 55, "fat": 12}
+        created = self.client.post("/api/saved-meals/", meal, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(SavedMeal.objects.count(), 1)
+        logged = {"kind": "food_log", "client_id": "a9c3e8a5-59bd-4e9e-9bad-11a5fc92756e",
+                  "payload": {"name": meal["name"], "meal_type": meal["meal_type"],
+                              "calories": meal["calories"], "protein": meal["protein"],
+                              "carbohydrates": meal["carbohydrates"], "fat": meal["fat"],
+                              "logged_at": "2026-09-22T10:00:00-04:00"}}
+        self.assertEqual(self.client.post("/api/sync/", logged, format="json").status_code, 201)
+        self.client.patch(f"/api/saved-meals/{created.data['id']}/", {"calories": 500}, format="json")
+        self.assertEqual(FoodLog.objects.get().calories_snapshot, 450)
+        self.assertEqual(self.client.delete(f"/api/saved-meals/{created.data['id']}/").status_code, 204)
+        self.assertEqual(FoodLog.objects.count(), 1)
+
+    @patch("tracker.views.urlopen")
+    def test_barcode_lookup_prefers_serving_and_rejects_invalid_codes(self, mocked_urlopen):
+        mocked_urlopen.return_value.__enter__.return_value = BytesIO(
+            b'{"status":1,"product":{"product_name":"Yogurt","serving_size":"150 g",'
+            b'"nutriments":{"energy-kcal_serving":140,"proteins_serving":12,'
+            b'"carbohydrates_serving":16,"fat_serving":2}}}'
+        )
+        response = self.client.get("/api/food-lookup/12345678/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["calories"], 140)
+        self.assertEqual(response.data["serving_description"], "150 g")
+        self.assertEqual(self.client.get("/api/food-lookup/not-a-code/").status_code, 400)
 
 # Create your tests here.

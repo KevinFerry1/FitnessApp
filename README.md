@@ -5,10 +5,11 @@ A mobile-first calorie, bodyweight, and gym-workout tracker. The MVP is an insta
 ## What works now
 
 - Today dashboard with calories, protein, latest bodyweight, and today's activity
-- Fast custom-food logging with snapshotted nutrition history
+- Fast custom-food logging with snapshotted nutrition history, camera/manual barcode lookup via Open Food Facts, and saved meals/recipes for one-tap logging
 - Bodyweight check-ins
 - Start/finish workouts, add exercises, and rapidly save weight/reps sets
-- Workout history
+- Workout history with full-day details, editing and deletion of workouts, exercises, and sets
+- Last exercise performance in the active workout, expandable to the previous three sessions
 - Apple Notes workout import with a review-before-save preview
 - Editable name, calorie goal, protein goal, and weight-unit preferences
 - Offline food, bodyweight, and workout draft logging with queued replay and a pending-sync indicator
@@ -71,7 +72,11 @@ The note text is kept as an on-device draft until you confirm. Preview and impor
 
 ## Offline behavior
 
-After the first online load, the PWA shell and previously viewed dashboard/history can open offline. Food, bodyweight, profile edits, and complete workout drafts are saved to IndexedDB before network submission. A banner shows how many changes are waiting; tapping it retries. The app also retries while open, when the browser reports connectivity, and when brought back to the foreground. Keep the app installed on the same phone until the banner reaches zero—clearing browser/site data discards unsynced changes. A closed iPhone PWA cannot be relied on for background sync; reopen it when the Pi is reachable. Simultaneous edits of one workout from multiple devices are not yet merged.
+After the first online load, the PWA shell and previously viewed dashboard/history can open offline. Food (including one-tap saved-meal logs), bodyweight, profile edits, workout drafts, and workout-history edits/deletions are saved to IndexedDB before network submission. A banner shows how many changes are waiting; tapping it retries. The app also retries while open, when the browser reports connectivity, and when brought back to the foreground. Keep the app installed on the same phone until the banner reaches zero—clearing browser/site data discards unsynced changes. A closed iPhone PWA cannot be relied on for background sync; reopen it when the Pi is reachable. Simultaneous edits of one workout from multiple devices are not yet merged. Creating/editing reusable meals, Notes import, and barcode lookup require a Pi connection.
+
+## Food database and barcode lookup
+
+The food entry sheet can scan a product barcode with the phone camera or accept a typed barcode. The Pi looks up product and nutrition information in [Open Food Facts](https://world.openfoodfacts.org/) and pre-fills the form. It does not automatically log a product: review the serving size and macros against the package first. Open Food Facts is crowd-sourced, so products may be missing or inaccurate. Camera access requires a secure context (the Tailscale HTTPS URL provides one), phone permission, and a supported browser; typed entry is the fallback. Lookup requires internet access on the Pi. Saved meals/recipes use user-entered macros for one serving; logged food is snapshotted, so editing a recipe later does not rewrite old logs.
 
 ## Repository map
 

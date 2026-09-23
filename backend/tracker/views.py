@@ -1,4 +1,7 @@
 from datetime import datetime, time
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from uuid import UUID
 
 from django.db import transaction
@@ -10,13 +13,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .importer import parse_notes
-from .models import BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, NotesImportBatch, Workout, WorkoutExercise
+from .models import BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, NotesImportBatch, SavedMeal, Workout, WorkoutExercise
 from .serializers import (
     BodyWeightEntrySerializer,
     ExerciseSerializer,
     ExerciseSetSerializer,
     FoodLogSerializer,
     FoodSerializer,
+    SavedMealSerializer,
     WorkoutExerciseSerializer,
     WorkoutSerializer,
 )
@@ -41,6 +45,42 @@ class FoodViewSet(OwnerViewSet):
 class FoodLogViewSet(OwnerViewSet):
     queryset = FoodLog.objects.select_related("food").all()
     serializer_class = FoodLogSerializer
+
+
+class SavedMealViewSet(viewsets.ModelViewSet):
+    queryset = SavedMeal.objects.all()
+    serializer_class = SavedMealSerializer
+
+
+class BarcodeLookupView(APIView):
+    """Lookup-only integration: the user reviews values before logging."""
+
+    def get(self, request, barcode):
+        if not barcode.isdigit() or not 8 <= len(barcode) <= 14:
+            raise ValidationError({"barcode": "Enter an 8–14 digit barcode"})
+        url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+        headers = {"User-Agent": "FitnessApp/0.1 (https://github.com/KevinFerry1/FitnessApp)"}
+        try:
+            with urlopen(Request(url, headers=headers), timeout=6) as response:
+                result = json.load(response)
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            return Response({"detail": "Food lookup is unavailable. Try again or enter macros manually."}, status=503)
+        if result.get("status") != 1:
+            return Response({"detail": "Barcode not found. You can enter this food manually."}, status=404)
+        product = result.get("product") or {}
+        nutrients = product.get("nutriments") or {}
+        serving = bool(product.get("serving_size") and nutrients.get("energy-kcal_serving") is not None)
+        suffix = "_serving" if serving else "_100g"
+        return Response({
+            "name": product.get("product_name") or product.get("product_name_en") or "Unknown food",
+            "brand": product.get("brands") or "",
+            "serving_description": product.get("serving_size") if serving else "100 g",
+            "calories": nutrients.get("energy-kcal" + suffix),
+            "protein": nutrients.get("proteins" + suffix),
+            "carbohydrates": nutrients.get("carbohydrates" + suffix),
+            "fat": nutrients.get("fat" + suffix),
+            "source": "Open Food Facts",
+        })
 
 
 class BodyWeightEntryViewSet(OwnerViewSet):

@@ -59,6 +59,7 @@ class SetPayload(serializers.Serializer):
     weight = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, allow_null=True)
     weight_unit = serializers.ChoiceField(choices=("lb", "kg", "plate"))
     reps = serializers.IntegerField(min_value=0, max_value=255)
+    set_type = serializers.ChoiceField(choices=("working", "warmup", "drop", "failure"), required=False)
     performed_at = serializers.DateTimeField()
 
 
@@ -78,8 +79,18 @@ class WorkoutPayload(serializers.Serializer):
     exercises = ExercisePayload(many=True)
 
 
+class WorkoutDeletePayload(serializers.Serializer):
+    server_id = serializers.IntegerField(min_value=1, required=False)
+    workout_client_id = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("A workout ID is required")
+        return attrs
+
+
 class SyncEnvelope(serializers.Serializer):
-    kind = serializers.ChoiceField(choices=("food_log", "weight_entry", "workout", "profile"))
+    kind = serializers.ChoiceField(choices=("food_log", "weight_entry", "workout", "workout_delete", "profile"))
     client_id = serializers.UUIDField()
     payload = serializers.JSONField()
 
@@ -97,6 +108,7 @@ class SyncView(APIView):
             "food_log": FoodLogPayload,
             "weight_entry": WeightPayload,
             "workout": WorkoutPayload,
+            "workout_delete": WorkoutDeletePayload,
             "profile": ProfileSerializer,
         }[kind]
         payload_serializer = payload_class(data=raw_payload)
@@ -134,6 +146,15 @@ class SyncView(APIView):
                 profile.save()
                 return Response(ProfileSerializer(profile).data)
 
+            if kind == "workout_delete":
+                workouts = Workout.objects.all()
+                if payload.get("server_id"):
+                    workouts = workouts.filter(pk=payload["server_id"])
+                if payload.get("workout_client_id"):
+                    workouts = workouts.filter(client_id=payload["workout_client_id"])
+                count, _ = workouts.delete()
+                return Response({"deleted": bool(count)})
+
             workout = Workout.objects.filter(client_id=client_id).first()
             if workout is None and payload.get("server_id"):
                 workout = Workout.objects.filter(pk=payload["server_id"]).first()
@@ -162,7 +183,8 @@ class SyncView(APIView):
                 ExerciseSet.objects.bulk_create([
                     ExerciseSet(workout_exercise=workout_exercise, set_number=set_item["set_number"],
                                 weight=set_item["weight"], weight_unit=set_item["weight_unit"],
-                                reps=set_item["reps"], performed_at=set_item["performed_at"])
+                                reps=set_item["reps"], set_type=set_item.get("set_type", "working"),
+                                performed_at=set_item["performed_at"])
                     for set_item in item["sets"]
                 ])
             return Response({"id": workout.id, "revision": workout.sync_revision})

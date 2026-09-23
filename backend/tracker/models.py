@@ -80,6 +80,21 @@ class FoodLog(ClientMutationId, TimeStampedModel):
         ordering = ["-logged_at"]
 
 
+class SavedMeal(TimeStampedModel):
+    """Reusable nutrition snapshot for a frequently eaten meal or recipe."""
+
+    name = models.CharField(max_length=160)
+    serving_description = models.CharField(max_length=120, default="1 serving")
+    meal_type = models.CharField(max_length=16, choices=FoodLog.MEALS, default="lunch")
+    calories = models.PositiveIntegerField()
+    protein = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    carbohydrates = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    fat = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+
+    class Meta:
+        ordering = ["name"]
+
+
 class BodyWeightEntry(ClientMutationId, TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="weight_entries")
     weight = models.DecimalField(max_digits=6, decimal_places=2)
