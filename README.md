@@ -5,7 +5,7 @@ A mobile-first calorie, bodyweight, and gym-workout tracker. The MVP is an insta
 ## What works now
 
 - Today dashboard with calories, protein, latest bodyweight, and today's activity
-- Fast custom-food logging with snapshotted nutrition history, camera/manual barcode lookup via Open Food Facts, and saved meals/recipes for one-tap logging
+- Fast custom-food logging with snapshotted nutrition history, barcode lookup, on-device Nutrition Facts photo OCR, fractional serving quantities, and saved meals/recipes
 - Bodyweight check-ins
 - Start/finish workouts, add exercises, and rapidly save weight/reps sets
 - Workout history with full-day details, editing and deletion of workouts, exercises, and sets
@@ -72,11 +72,13 @@ The note text is kept as an on-device draft until you confirm. Preview and impor
 
 ## Offline behavior
 
-After the first online load, the PWA shell and previously viewed dashboard/history can open offline. Food (including one-tap saved-meal logs), bodyweight, profile edits, workout drafts, and workout-history edits/deletions are saved to IndexedDB before network submission. A banner shows how many changes are waiting; tapping it retries. The app also retries while open, when the browser reports connectivity, and when brought back to the foreground. Keep the app installed on the same phone until the banner reaches zero—clearing browser/site data discards unsynced changes. A closed iPhone PWA cannot be relied on for background sync; reopen it when the Pi is reachable. Simultaneous edits of one workout from multiple devices are not yet merged. Creating/editing reusable meals, Notes import, and barcode lookup require a Pi connection.
+After the first online load, the PWA shell and previously viewed dashboard/history can open offline. Food (including one-tap saved-meal logs and compressed label photos), bodyweight, profile edits, workout drafts, and workout-history edits/deletions are saved to IndexedDB before network submission. A banner shows how many changes are waiting; tapping it retries. The app also retries while open, when the browser reports connectivity, and when brought back to the foreground. Keep the app installed on the same phone until the banner reaches zero—clearing browser/site data discards unsynced changes. A closed iPhone PWA cannot be relied on for background sync; reopen it when the Pi is reachable. Simultaneous edits of one workout from multiple devices are not yet merged. Creating/editing reusable meals, Notes import, and barcode lookup require a Pi connection. Label OCR runs on the phone; its model files are loaded from the Pi on first use and cached for later offline use. Previously saved label photos may need a Pi connection to reopen if the browser has not cached them.
 
 ## Food database and barcode lookup
 
 The food entry sheet can scan a product barcode with the phone camera or accept a typed barcode. The Pi looks up product and nutrition information in [Open Food Facts](https://world.openfoodfacts.org/) and pre-fills the form. It does not automatically log a product: review the serving size and macros against the package first. Open Food Facts is crowd-sourced, so products may be missing or inaccurate. Camera access requires a secure context (the Tailscale HTTPS URL provides one), phone permission, and a supported browser; typed entry is the fallback. Lookup requires internet access on the Pi. Saved meals/recipes use user-entered macros for one serving; logged food is snapshotted, so editing a recipe later does not rewrite old logs.
+
+If a barcode is missing, tap **Take or choose label photo** in Add food. On an iPhone this opens the camera or photo picker. The app compresses the photo to at most 350 KB and uses [Tesseract.js](https://github.com/naptha/tesseract.js) on the phone to suggest serving size, calories, protein, carbs, and fat. OCR never sends the photo to an outside service; the OCR code and English model are served by the Pi. The suggestions can be incomplete or wrong, so compare every field with the label and correct it before saving. Enter a positive serving quantity (for example, `1.5`), and the app previews and saves multiplied totals. The photo is stored with that food log in the Pi's SQLite database and included in its backups. Tap a food log to view its saved photo and totals. If you eat it regularly, choose **Save as reusable meal**; the recipe keeps per-serving values. Saved meals have a one-tap **Log 1** button and a **Servings** option for other quantities.
 
 ## Repository map
 

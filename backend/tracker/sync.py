@@ -1,5 +1,9 @@
 """Atomic, idempotent writes for occasionally-connected phones."""
 
+import base64
+import binascii
+from decimal import Decimal, ROUND_HALF_UP
+
 from django.db import transaction
 from rest_framework import serializers, status
 from rest_framework.response import Response
@@ -40,11 +44,29 @@ class ProfileView(APIView):
 class FoodLogPayload(serializers.Serializer):
     name = serializers.CharField(max_length=160)
     meal_type = serializers.ChoiceField(choices=FoodLog.MEALS)
-    calories = serializers.IntegerField(min_value=0)
-    protein = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0)
-    carbohydrates = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0)
-    fat = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0)
+    calories = serializers.IntegerField(min_value=0, max_value=100000)
+    protein = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"))
+    carbohydrates = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"))
+    fat = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"))
+    serving_quantity = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=Decimal("0.01"), max_value=Decimal("100"), required=False, default=Decimal("1"))
+    serving_description = serializers.CharField(max_length=120, required=False, default="1 serving")
+    nutrition_source = serializers.ChoiceField(choices=("manual", "barcode", "label", "saved_meal"), required=False, default="manual")
+    label_photo_data_url = serializers.CharField(required=False, allow_blank=True, max_length=500000)
     logged_at = serializers.DateTimeField()
+
+    def validate_label_photo_data_url(self, value):
+        if not value:
+            return None
+        prefix = "data:image/jpeg;base64,"
+        if not value.startswith(prefix):
+            raise serializers.ValidationError("Label photo must be a JPEG")
+        try:
+            image = base64.b64decode(value[len(prefix):], validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise serializers.ValidationError("Invalid label photo") from exc
+        if not image.startswith(b"\xff\xd8\xff") or len(image) > 350_000:
+            raise serializers.ValidationError("Label photo must be a JPEG under 350 KB")
+        return image
 
 
 class WeightPayload(serializers.Serializer):
@@ -120,15 +142,23 @@ class SyncView(APIView):
                 existing = FoodLog.objects.filter(client_id=client_id).first()
                 if existing:
                     return Response({"id": existing.id, "duplicate": True})
+                quantity = payload["serving_quantity"]
                 food = Food.objects.create(
                     name=payload["name"], calories=payload["calories"], protein=payload["protein"],
                     carbohydrates=payload["carbohydrates"], fat=payload["fat"],
+                    serving_description=payload["serving_description"],
                 )
                 log = FoodLog.objects.create(
                     client_id=client_id, food=food, logged_at=payload["logged_at"],
                     meal_type=payload["meal_type"], name_snapshot=food.name,
-                    calories_snapshot=food.calories, protein_snapshot=food.protein,
-                    carbs_snapshot=food.carbohydrates, fat_snapshot=food.fat,
+                    serving_quantity=quantity,
+                    serving_description_snapshot=payload["serving_description"],
+                    nutrition_source=payload["nutrition_source"],
+                    label_photo=payload.get("label_photo_data_url"),
+                    calories_snapshot=int((Decimal(food.calories) * quantity).quantize(Decimal("1"), rounding=ROUND_HALF_UP)),
+                    protein_snapshot=(food.protein * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    carbs_snapshot=(food.carbohydrates * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    fat_snapshot=(food.fat * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                 )
                 return Response({"id": log.id}, status=status.HTTP_201_CREATED)
 

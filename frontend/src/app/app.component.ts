@@ -3,9 +3,11 @@ import { HttpClient } from '@angular/common/http';
 import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { OfflineStore, PendingChange } from './offline-store';
+import { parseNutritionLabel } from './nutrition-label';
 
 type Tab = 'today' | 'food' | 'workout' | 'progress' | 'profile';
-type Sheet = 'food' | 'scanner' | 'weight' | 'workout' | 'exercise' | 'import' | 'profile' | 'savedMeal' | null;
+type Sheet = 'food' | 'foodLog' | 'scanner' | 'weight' | 'workout' | 'exercise' | 'import' | 'profile' | 'savedMeal' | null;
+type NutritionSource = 'manual' | 'barcode' | 'label' | 'saved_meal';
 type EntityId = number | string;
 
 function localDateString(): string {
@@ -26,6 +28,12 @@ interface FoodLog {
   meal_type: string;
   calories_snapshot: number;
   protein_snapshot: number;
+  carbs_snapshot: number;
+  fat_snapshot: number;
+  serving_quantity: number | string;
+  serving_description_snapshot: string;
+  nutrition_source: NutritionSource;
+  label_photo_url: string | null;
   logged_at: string;
 }
 
@@ -139,6 +147,17 @@ export class AppComponent implements OnInit {
   importPreview = signal<{ workouts: ParsedWorkout[]; warnings: Array<{ line: number; text: string; message: string }> } | null>(null);
 
   foodForm = { name: '', meal_type: 'lunch', calories: null as number | null, protein: null as number | null, carbs: null as number | null, fat: null as number | null };
+  foodServings = 1;
+  foodServingDescription = '1 serving';
+  foodSource: NutritionSource = 'manual';
+  labelPhotoDataUrl: string | null = null;
+  labelOcrText = '';
+  labelScanStatus = signal('');
+  labelScanning = signal(false);
+  barcodeNotFound = signal(false);
+  selectedFoodLog: FoodLog | null = null;
+  private labelScanToken = 0;
+  private labelWorker: { terminate(): Promise<unknown> } | null = null;
   weightForm: { weight: number | null; unit: 'lb' | 'kg'; notes: string } = { weight: null, unit: 'lb', notes: '' };
   workoutName = 'Workout';
   exerciseName = '';
@@ -152,6 +171,7 @@ export class AppComponent implements OnInit {
   barcode = '';
   lookupServing = '';
   barcodeLoading = signal(false);
+  private barcodeLookupToken = 0;
   private scannerControls: { stop(): void } | null = null;
   notesText = '';
   private notesImportId: string = crypto.randomUUID();
@@ -222,7 +242,36 @@ export class AppComponent implements OnInit {
 
   close(): void {
     this.stopScanner();
+    this.labelScanToken += 1;
+    this.labelScanning.set(false);
+    this.stopLabelWorker();
     this.activeSheet.set(null);
+  }
+
+  private stopLabelWorker(): void {
+    const worker = this.labelWorker;
+    this.labelWorker = null;
+    if (worker) void worker.terminate().catch(() => {});
+  }
+
+  get canAddFood(): boolean {
+    const food = this.foodForm;
+    return !!food.name.trim() && food.calories !== null && Number.isFinite(Number(food.calories)) &&
+      Number(food.calories) >= 0 && Number(this.foodServings) > 0 && Number(this.foodServings) <= 100 &&
+      (this.foodSource === 'manual' || [food.protein, food.carbs, food.fat]
+        .every((value) => value !== null && Number.isFinite(Number(value)) && Number(value) >= 0));
+  }
+
+  get foodTotals(): { calories: number; protein: number; carbs: number; fat: number } {
+    const quantity = Number(this.foodServings) || 0;
+    const round2 = (value: number | null) => Math.round(Number(value ?? 0) * quantity * 100) / 100;
+    return { calories: Math.round(Number(this.foodForm.calories ?? 0) * quantity),
+      protein: round2(this.foodForm.protein), carbs: round2(this.foodForm.carbs), fat: round2(this.foodForm.fat) };
+  }
+
+  openFoodLog(log: FoodLog): void {
+    this.selectedFoodLog = log;
+    this.activeSheet.set('foodLog');
   }
 
   private stopScanner(): void {
@@ -261,7 +310,7 @@ export class AppComponent implements OnInit {
   }
 
   async addFood(): Promise<void> {
-    if (!this.foodForm.name.trim() || this.foodForm.calories === null) return;
+    if (!this.canAddFood) return;
     this.saving.set(true);
     const payload = {
       name: this.foodForm.name.trim(),
@@ -270,11 +319,21 @@ export class AppComponent implements OnInit {
       protein: this.foodForm.protein ?? 0,
       carbohydrates: this.foodForm.carbs ?? 0,
       fat: this.foodForm.fat ?? 0,
+      serving_quantity: this.foodServings,
+      serving_description: this.foodServingDescription.trim() || '1 serving',
+      nutrition_source: this.foodSource,
+      label_photo_data_url: this.labelPhotoDataUrl ?? '',
       logged_at: new Date().toISOString(),
     };
     try {
       await this.offline.enqueue('food_log', payload);
       this.foodForm = { name: '', meal_type: 'lunch', calories: null, protein: null, carbs: null, fat: null };
+      this.foodServings = 1;
+      this.foodServingDescription = '1 serving';
+      this.foodSource = 'manual';
+      this.labelPhotoDataUrl = null;
+      this.labelOcrText = '';
+      this.labelScanStatus.set('');
       this.lookupServing = '';
       await this.applyLocalState();
       this.finishAction('Food saved on device');
@@ -555,7 +614,8 @@ export class AppComponent implements OnInit {
     try {
       await this.offline.enqueue('food_log', { name: meal.name, meal_type: meal.meal_type,
         calories: meal.calories, protein: meal.protein, carbohydrates: meal.carbohydrates,
-        fat: meal.fat, logged_at: new Date().toISOString() });
+        fat: meal.fat, serving_quantity: 1, serving_description: meal.serving_description,
+        nutrition_source: 'saved_meal', logged_at: new Date().toISOString() });
       await this.applyLocalState();
       this.showToast(`${meal.name} saved on device`);
     } catch { this.showToast('Could not log saved meal'); }
@@ -566,11 +626,23 @@ export class AppComponent implements OnInit {
     this.savedMealForm = { ...meal };
   }
 
+  useSavedMeal(meal: SavedMeal): void {
+    this.barcodeLookupToken += 1;
+    this.foodForm = { name: meal.name, meal_type: meal.meal_type, calories: meal.calories,
+      protein: meal.protein, carbs: meal.carbohydrates, fat: meal.fat };
+    this.foodServings = 1;
+    this.foodServingDescription = meal.serving_description;
+    this.foodSource = 'saved_meal';
+    this.labelPhotoDataUrl = null;
+    this.lookupServing = '';
+    this.activeSheet.set('food');
+  }
+
   saveFoodAsMeal(): void {
-    if (!this.foodForm.name.trim() || this.foodForm.calories === null) return;
+    if (!this.canAddFood) return;
     this.savedMealForm = {
       id: 0, name: this.foodForm.name.trim(), serving_description: this.lookupServing || '1 serving',
-      meal_type: this.foodForm.meal_type, calories: this.foodForm.calories,
+      meal_type: this.foodForm.meal_type, calories: this.foodForm.calories!,
       protein: this.foodForm.protein ?? 0, carbohydrates: this.foodForm.carbs ?? 0,
       fat: this.foodForm.fat ?? 0,
     };
@@ -602,25 +674,136 @@ export class AppComponent implements OnInit {
   lookupBarcode(): void {
     const code = this.barcode.trim();
     if (!/^\d{8,14}$/.test(code)) { this.showToast('Enter an 8–14 digit barcode'); return; }
+    const token = ++this.barcodeLookupToken;
+    this.labelScanToken += 1;
+    this.stopLabelWorker();
+    this.labelScanning.set(false);
     this.lookupServing = '';
+    this.barcodeNotFound.set(false);
     this.barcodeLoading.set(true);
     this.http.get<{ name: string; brand: string; calories: number | null; protein: number | null;
       carbohydrates: number | null; fat: number | null; serving_description: string }>(`${this.api}/food-lookup/${code}/`).subscribe({
       next: (product) => {
+        if (token !== this.barcodeLookupToken) return;
         this.foodForm.name = product.brand ? `${product.name} — ${product.brand}` : product.name;
         this.foodForm.calories = product.calories === null ? null : Math.round(Number(product.calories));
         this.foodForm.protein = product.protein === null ? null : Number(product.protein);
         this.foodForm.carbs = product.carbohydrates === null ? null : Number(product.carbohydrates);
         this.foodForm.fat = product.fat === null ? null : Number(product.fat);
         this.lookupServing = product.serving_description || '100 g';
+        this.foodServingDescription = this.lookupServing;
+        this.foodServings = 1;
+        this.foodSource = 'barcode';
+        this.labelPhotoDataUrl = null;
         this.barcodeLoading.set(false);
         this.showToast(`Found ${product.serving_description || '100 g'}; review macros before adding`);
       },
       error: (error) => {
+        if (token !== this.barcodeLookupToken) return;
         this.barcodeLoading.set(false);
+        this.barcodeNotFound.set(error.status === 404);
         this.showToast(error.status === 404 ? 'Barcode not found; enter food manually' : 'Lookup unavailable; enter food manually');
       },
     });
+  }
+
+  async captureLabel(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const token = ++this.labelScanToken;
+    this.barcodeLookupToken += 1;
+    this.barcodeLoading.set(false);
+    this.stopLabelWorker();
+    this.labelScanning.set(true);
+    this.labelScanStatus.set('Preparing photo…');
+    this.barcodeNotFound.set(false);
+    try {
+      const photo = await this.compressLabelPhoto(file);
+      if (token !== this.labelScanToken) return;
+      this.labelPhotoDataUrl = photo;
+      this.foodSource = 'label';
+      this.foodServings = 1;
+      this.foodServingDescription = '1 serving';
+      this.foodForm.calories = null;
+      this.foodForm.protein = null;
+      this.foodForm.carbs = null;
+      this.foodForm.fat = null;
+      this.labelOcrText = '';
+      this.labelScanStatus.set('Reading label on your phone…');
+      const ocr = await import('tesseract.js');
+      const createWorker = (ocr as unknown as { default?: typeof ocr }).default?.createWorker ?? ocr.createWorker;
+      const worker = await createWorker('eng', 1, {
+        workerPath: '/ocr/worker.min.js', corePath: '/ocr/core', langPath: '/ocr/lang',
+        logger: (message) => {
+          if (token === this.labelScanToken && this.activeSheet() === 'food') {
+            const percent = Number.isFinite(message.progress) ? ` ${Math.round(message.progress * 100)}%` : '';
+            this.labelScanStatus.set(`Reading label on your phone…${percent}`);
+          }
+        },
+      });
+      if (token !== this.labelScanToken || this.activeSheet() !== 'food') {
+        await worker.terminate().catch(() => {});
+        return;
+      }
+      this.labelWorker = worker;
+      try {
+        const result = await worker.recognize(photo);
+        if (token !== this.labelScanToken || this.activeSheet() !== 'food') return;
+        this.labelOcrText = result.data.text;
+        const values = parseNutritionLabel(result.data.text);
+        this.foodServingDescription = values.servingDescription || '1 serving';
+        this.foodForm.calories = values.calories;
+        this.foodForm.protein = values.protein;
+        this.foodForm.carbs = values.carbs;
+        this.foodForm.fat = values.fat;
+        this.labelScanStatus.set('Review the label photo and correct every field before logging.');
+      } finally {
+        if (this.labelWorker === worker) {
+          this.labelWorker = null;
+          await worker.terminate().catch(() => {});
+        }
+      }
+    } catch {
+      if (token !== this.labelScanToken) return;
+      this.labelScanStatus.set(this.labelPhotoDataUrl
+        ? 'Could not read the label automatically. Enter its values while viewing the photo.'
+        : 'Could not open this photo. Try a clearer picture or enter the values manually.');
+    } finally { if (token === this.labelScanToken) this.labelScanning.set(false); }
+  }
+
+  removeLabelPhoto(): void {
+    this.labelScanToken += 1;
+    this.stopLabelWorker();
+    this.labelPhotoDataUrl = null;
+    this.labelOcrText = '';
+    this.labelScanStatus.set('');
+    this.labelScanning.set(false);
+    if (this.foodSource === 'label') this.foodSource = 'manual';
+  }
+
+  private async compressLabelPhoto(file: File): Promise<string> {
+    if (!file.type.startsWith('image/')) throw new Error('Not an image');
+    const url = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      let scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+      for (let attempt = 0; attempt < 6; attempt++) {
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Canvas unavailable');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', attempt < 3 ? 0.78 - attempt * 0.13 : 0.62);
+        if (dataUrl.length < 460_000) return dataUrl;
+        scale *= 0.78;
+      }
+      throw new Error('Photo too large');
+    } finally { URL.revokeObjectURL(url); }
   }
 
   private draftToWorkout(draft: WorkoutDraft): Workout {
@@ -663,14 +846,23 @@ export class AppComponent implements OnInit {
     };
     for (const item of pending) {
       if (item.kind === 'food_log') {
-        const food = item.payload as { name: string; meal_type: string; calories: number; protein: number; carbohydrates: number; fat: number; logged_at: string };
+        const food = item.payload as { name: string; meal_type: string; calories: number; protein: number; carbohydrates: number; fat: number; logged_at: string;
+          serving_quantity?: number; serving_description?: string; nutrition_source?: NutritionSource; label_photo_data_url?: string };
         if (new Date(food.logged_at).toDateString() === new Date(today.date + 'T12:00:00').toDateString()) {
+          const quantity = Number(food.serving_quantity ?? 1);
+          const calories = Math.round(Number(food.calories) * quantity);
+          const protein = Number(food.protein) * quantity;
+          const carbs = Number(food.carbohydrates) * quantity;
+          const fat = Number(food.fat) * quantity;
           today.food_logs.unshift({ id: item.id, name_snapshot: food.name, meal_type: food.meal_type,
-            calories_snapshot: food.calories, protein_snapshot: food.protein, logged_at: food.logged_at });
-          today.nutrition.calories = Number(today.nutrition.calories) + Number(food.calories);
-          today.nutrition.protein = Number(today.nutrition.protein) + Number(food.protein);
-          today.nutrition.carbs = Number(today.nutrition.carbs) + Number(food.carbohydrates);
-          today.nutrition.fat = Number(today.nutrition.fat) + Number(food.fat);
+            calories_snapshot: calories, protein_snapshot: protein, carbs_snapshot: carbs, fat_snapshot: fat,
+            serving_quantity: quantity, serving_description_snapshot: food.serving_description ?? '1 serving',
+            nutrition_source: food.nutrition_source ?? 'manual', label_photo_url: food.label_photo_data_url || null,
+            logged_at: food.logged_at });
+          today.nutrition.calories = Number(today.nutrition.calories) + calories;
+          today.nutrition.protein = Number(today.nutrition.protein) + protein;
+          today.nutrition.carbs = Number(today.nutrition.carbs) + carbs;
+          today.nutrition.fat = Number(today.nutrition.fat) + fat;
         }
       } else if (item.kind === 'weight_entry') {
         const weight = item.payload as { weight: number; unit: string };

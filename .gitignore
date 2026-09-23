@@ -7,5 +7,8 @@ backend/db.sqlite3
 frontend/node_modules/
 frontend/dist/
 frontend/.angular/
+frontend/public/ocr/core/
+frontend/public/ocr/worker.min.js
+frontend/public/ocr/worker.min.js.LICENSE.txt
 .idea/
 .vscode/

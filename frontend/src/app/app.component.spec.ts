@@ -29,4 +29,15 @@ describe('AppComponent', () => {
     app.showThreeSessions = true;
     expect(app.selectedExerciseHistory.map((item) => item.workout.id)).toEqual([3, 2, 1]);
   });
+
+  it('shows the multiplied nutrition before logging fractional servings', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    app.foodForm = { name: 'Yogurt', meal_type: 'breakfast', calories: 140, protein: 12.5, carbs: 16, fat: 2.2 };
+    app.foodServings = 1.5;
+    app.foodSource = 'label';
+    expect(app.canAddFood).toBeTrue();
+    expect(app.foodTotals).toEqual({ calories: 210, protein: 18.75, carbs: 24, fat: 3.3 });
+    app.foodForm.protein = null;
+    expect(app.canAddFood).toBeFalse();
+  });
 });

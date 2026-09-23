@@ -11,10 +11,15 @@ class FoodSerializer(serializers.ModelSerializer):
 
 
 class FoodLogSerializer(serializers.ModelSerializer):
+    label_photo_url = serializers.SerializerMethodField()
+
+    def get_label_photo_url(self, obj):
+        return f"/api/food-logs/{obj.pk}/label-photo/" if obj.label_photo else None
+
     class Meta:
         model = FoodLog
-        fields = "__all__"
-        read_only_fields = ("user",)
+        exclude = ("label_photo",)
+        read_only_fields = ("user", "label_photo_url")
 
 
 class SavedMealSerializer(serializers.ModelSerializer):

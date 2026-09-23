@@ -70,11 +70,15 @@ class FoodLog(ClientMutationId, TimeStampedModel):
     logged_at = models.DateTimeField()
     meal_type = models.CharField(max_length=16, choices=MEALS, default="snack")
     serving_quantity = models.DecimalField(max_digits=7, decimal_places=2, default=1)
+    serving_description_snapshot = models.CharField(max_length=120, default="1 serving")
+    nutrition_source = models.CharField(max_length=20, default="manual")
     name_snapshot = models.CharField(max_length=160)
     calories_snapshot = models.PositiveIntegerField()
     protein_snapshot = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     carbs_snapshot = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     fat_snapshot = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    # Small, compressed JPEGs live in SQLite so normal database backups include them.
+    label_photo = models.BinaryField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ["-logged_at"]

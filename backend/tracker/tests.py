@@ -2,6 +2,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 from unittest.mock import patch
 from io import BytesIO
+import base64
 
 from .importer import parse_exercise_line, parse_notes
 from .models import AppSettings, BodyWeightEntry, ExerciseSet, FoodLog, SavedMeal, Workout
@@ -152,6 +153,40 @@ class FoodFeaturesTests(TestCase):
         self.assertEqual(FoodLog.objects.get().calories_snapshot, 450)
         self.assertEqual(self.client.delete(f"/api/saved-meals/{created.data['id']}/").status_code, 204)
         self.assertEqual(FoodLog.objects.count(), 1)
+
+    def test_label_photo_and_fractional_servings_are_snapshotted(self):
+        jpeg = b"\xff\xd8\xff\xe0test-label\xff\xd9"
+        payload = {"kind": "food_log", "client_id": "cc38dfbc-7454-490b-ae93-d4257b91a503",
+                   "payload": {"name": "Yogurt", "meal_type": "breakfast", "calories": 140,
+                               "protein": "12.5", "carbohydrates": "16", "fat": "2.2",
+                               "serving_quantity": "1.5", "serving_description": "1 cup (150 g)",
+                               "nutrition_source": "label",
+                               "label_photo_data_url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode(),
+                               "logged_at": "2026-09-22T10:00:00-04:00"}}
+        response = self.client.post("/api/sync/", payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        log = FoodLog.objects.get()
+        self.assertEqual(log.calories_snapshot, 210)
+        self.assertEqual(str(log.protein_snapshot), "18.75")
+        self.assertEqual(log.serving_quantity, 1.5)
+        self.assertEqual(log.serving_description_snapshot, "1 cup (150 g)")
+        self.assertEqual(log.nutrition_source, "label")
+        listed = self.client.get("/api/food-logs/").data[0]
+        self.assertNotIn("label_photo", listed)
+        self.assertEqual(listed["label_photo_url"], f"/api/food-logs/{log.id}/label-photo/")
+        photo = self.client.get(listed["label_photo_url"])
+        self.assertEqual(photo.status_code, 200)
+        self.assertEqual(photo.content, jpeg)
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").data["duplicate"], True)
+
+    def test_label_photo_rejects_non_jpeg(self):
+        payload = {"kind": "food_log", "client_id": "4b4b034b-85d4-4d21-91f5-70c2095ba8b3",
+                   "payload": {"name": "Snack", "meal_type": "snack", "calories": 50,
+                               "protein": 0, "carbohydrates": 10, "fat": 0,
+                               "label_photo_data_url": "data:text/html;base64,PGgxPng8L2gxPg==",
+                               "logged_at": "2026-09-22T10:00:00-04:00"}}
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 400)
+        self.assertEqual(FoodLog.objects.count(), 0)
 
     @patch("tracker.views.urlopen")
     def test_barcode_lookup_prefers_serving_and_rejects_invalid_codes(self, mocked_urlopen):

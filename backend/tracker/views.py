@@ -5,6 +5,8 @@ from urllib.request import Request, urlopen
 from uuid import UUID
 
 from django.db import transaction
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -45,6 +47,17 @@ class FoodViewSet(OwnerViewSet):
 class FoodLogViewSet(OwnerViewSet):
     queryset = FoodLog.objects.select_related("food").all()
     serializer_class = FoodLogSerializer
+
+
+class FoodLabelPhotoView(APIView):
+    def get(self, request, pk):
+        log = get_object_or_404(FoodLog, pk=pk)
+        if not log.label_photo:
+            return Response({"detail": "No label photo saved"}, status=404)
+        response = HttpResponse(bytes(log.label_photo), content_type="image/jpeg")
+        response["Cache-Control"] = "private, max-age=86400"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
 
 class SavedMealViewSet(viewsets.ModelViewSet):

@@ -64,7 +64,7 @@
             <article class="empty-state"><span>✦</span><h3>Your day is wide open</h3><p>Add food or start a workout. Your entries will show up here.</p></article>
           }
           @for (log of today().food_logs; track log.id) {
-            <article class="timeline-item"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></article>
+            <button class="timeline-item timeline-button" (click)="openFoodLog(log)"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.serving_quantity ?? 1 }} × {{ log.serving_description_snapshot || 'serving' }} · {{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></button>
           }
           @for (workout of today().workouts; track workout.id) {
             <article class="timeline-item"><div class="item-icon purple">◇</div><div><small>Workout</small><h3>{{ workout.name }}</h3><p>{{ workout.workout_exercises.length }} exercises</p></div><b>{{ workout.completed_at ? 'Done' : 'Active' }}</b></article>
@@ -79,13 +79,13 @@
         <button class="primary wide" (click)="open('food')">＋ Add food</button>
         <div class="section-heading"><h2>Saved meals & recipes</h2><button (click)="open('savedMeal')">＋ New</button></div>
         @for (meal of savedMeals(); track meal.id) {
-          <article class="saved-meal-card"><div><h3>{{ meal.name }}</h3><p>{{ meal.serving_description }} · {{ meal.calories }} kcal · P {{ meal.protein }}g / C {{ meal.carbohydrates }}g / F {{ meal.fat }}g</p></div><div class="saved-meal-actions"><button class="secondary" (click)="editSavedMeal(meal)" [attr.aria-label]="'Edit ' + meal.name">Edit</button><button class="primary" (click)="logSavedMeal(meal)">＋ Log</button></div></article>
+          <article class="saved-meal-card"><div><h3>{{ meal.name }}</h3><p>{{ meal.serving_description }} · {{ meal.calories }} kcal · P {{ meal.protein }}g / C {{ meal.carbohydrates }}g / F {{ meal.fat }}g</p></div><div class="saved-meal-actions"><button class="secondary" (click)="editSavedMeal(meal)" [attr.aria-label]="'Edit ' + meal.name">Edit</button><button class="secondary" (click)="useSavedMeal(meal)" [attr.aria-label]="'Choose servings for ' + meal.name">Servings</button><button class="primary" (click)="logSavedMeal(meal)">＋ Log 1</button></div></article>
         } @empty {
           <p class="muted-note">Save meals you repeat, then log one serving with a tap—even if your connection drops.</p>
         }
         <div class="section-heading"><h2>Today's food</h2></div>
         @for (log of today().food_logs; track log.id) {
-          <article class="timeline-item"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></article>
+          <button class="timeline-item timeline-button" (click)="openFoodLog(log)"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.serving_quantity ?? 1 }} × {{ log.serving_description_snapshot || 'serving' }} · {{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></button>
         } @empty {
           <article class="empty-state compact"><h3>No food logged yet</h3><p>Your latest foods will be easy to reuse here.</p></article>
         }
@@ -197,14 +197,28 @@
     <button class="close-button" (click)="close()" aria-label="Close">×</button>
 
     @if (sheet === 'food') {
-      <p class="eyebrow">QUICK LOG</p><h2>Add food</h2><p class="sheet-subtitle">One serving. You can fine-tune it later.</p>
+      <p class="eyebrow">QUICK LOG</p><h2>Add food</h2><p class="sheet-subtitle">Scan a barcode or label, or enter per-serving macros yourself.</p>
       <div class="barcode-row"><input inputmode="numeric" pattern="[0-9]*" [(ngModel)]="barcode" placeholder="Barcode number" aria-label="Barcode number"><button class="secondary" (click)="lookupBarcode()" [disabled]="barcodeLoading()">{{ barcodeLoading() ? 'Looking up…' : 'Look up' }}</button></div><button class="scan-button" (click)="startScanner()">▣ Scan with camera</button>@if (lookupServing) { <p class="lookup-serving">Nutrition shown for {{ lookupServing }}</p> }<p class="source-note">Data from <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener noreferrer">Open Food Facts</a> can be incomplete. Check the label and serving size before adding.</p>
+      <div class="label-capture" [class.missing-barcode]="barcodeNotFound()"><b>{{ barcodeNotFound() ? 'Barcode not found? Scan the Nutrition Facts label' : 'No barcode? Scan the Nutrition Facts label' }}</b><p>The photo stays on your phone for text recognition. The first scan may take a few seconds. Review all numbers before logging.</p><label class="secondary label-picker">📷 Take or choose label photo<input type="file" accept="image/*" capture="environment" (change)="captureLabel($event)"></label></div>
+      @if (labelPhotoDataUrl) { <div class="label-preview"><img [src]="labelPhotoDataUrl" alt="Captured Nutrition Facts label"><button class="danger-text" (click)="removeLabelPhoto()">Remove photo</button></div> }
+      @if (labelScanStatus()) { <p class="label-status">{{ labelScanStatus() }}</p> }
+      @if (labelOcrText) { <details class="ocr-text"><summary>View recognized text</summary><pre>{{ labelOcrText }}</pre></details> }
       <label class="field"><span>Food name</span><input autofocus [(ngModel)]="foodForm.name" placeholder="Chicken bowl"></label>
-      <div class="field-row"><label class="field"><span>Calories</span><input type="number" inputmode="numeric" [(ngModel)]="foodForm.calories" placeholder="650"></label><label class="field"><span>Protein (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.protein" placeholder="40"></label></div>
+      <label class="field"><span>Serving size on label</span><input [(ngModel)]="foodServingDescription" maxlength="120" placeholder="1 cup (240 ml)"></label>
+      <div class="field-row"><label class="field"><span>Calories per serving</span><input type="number" inputmode="numeric" min="0" [(ngModel)]="foodForm.calories" placeholder="650"></label><label class="field"><span>Protein per serving (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="foodForm.protein" placeholder="40"></label></div>
       <div class="field-row"><label class="field"><span>Carbs (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.carbs" placeholder="60"></label><label class="field"><span>Fat (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.fat" placeholder="18"></label></div>
+      <label class="field"><span>How many servings did you use?</span><input type="number" inputmode="decimal" min="0.01" max="100" step="0.25" [(ngModel)]="foodServings"></label>
+      <div class="food-total-preview"><b>Total to log</b><span>{{ foodTotals.calories }} kcal · P {{ foodTotals.protein }}g / C {{ foodTotals.carbs }}g / F {{ foodTotals.fat }}g</span></div>
       <label class="field"><span>Meal</span><select [(ngModel)]="foodForm.meal_type"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select></label>
-      <button class="primary wide" (click)="addFood()" [disabled]="saving() || !foodForm.name || foodForm.calories === null">{{ saving() ? 'Saving…' : 'Add food' }}</button>
-      <button class="secondary wide" (click)="saveFoodAsMeal()" [disabled]="!foodForm.name || foodForm.calories === null">Save as reusable meal</button>
+      <button class="primary wide" (click)="addFood()" [disabled]="saving() || labelScanning() || !canAddFood">{{ saving() ? 'Saving…' : 'Add food' }}</button>
+      <button class="secondary wide" (click)="saveFoodAsMeal()" [disabled]="labelScanning() || !canAddFood">Save as reusable meal</button>
+    }
+
+    @if (sheet === 'foodLog' && selectedFoodLog; as log) {
+      <p class="eyebrow">FOOD LOG</p><h2>{{ log.name_snapshot }}</h2><p class="sheet-subtitle">{{ log.logged_at | date:'medium' }} · {{ log.meal_type | titlecase }}</p>
+      @if (log.label_photo_url) { <a [href]="log.label_photo_url" target="_blank" rel="noopener noreferrer" class="photo-link"><img class="saved-label-photo" [src]="log.label_photo_url" alt="Saved Nutrition Facts label for this food"><span>Open full-size photo</span></a> }
+      <p class="food-log-serving">{{ log.serving_quantity ?? 1 }} × {{ log.serving_description_snapshot || 'serving' }} · {{ (log.nutrition_source || 'manual') | titlecase }}</p>
+      <div class="food-log-macros"><div><b>{{ log.calories_snapshot }}</b><span>kcal</span></div><div><b>{{ log.protein_snapshot }}</b><span>protein</span></div><div><b>{{ log.carbs_snapshot ?? 0 }}</b><span>carbs</span></div><div><b>{{ log.fat_snapshot ?? 0 }}</b><span>fat</span></div></div>
     }
 
     @if (sheet === 'scanner') {
