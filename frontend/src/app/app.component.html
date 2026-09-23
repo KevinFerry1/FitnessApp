@@ -269,7 +269,7 @@
     }
 
     @if (sheet === 'import') {
-      <p class="eyebrow">WORKOUT HISTORY</p><h2>Import from Notes</h2><p class="sheet-subtitle">Paste your note. Nothing is saved until you confirm the preview.</p>
+      <p class="eyebrow">WORKOUT HISTORY</p><h2>Import from Notes</h2><p class="sheet-subtitle">Paste your note. Expand each workout to check reps, weights, and notes before importing. Nothing is saved until you confirm.</p>
       <div class="format-tip"><b>Recognized format</b><code>9/21/26 upper B<br>Chest fly 2x7,6 25lb (4)</code></div>
       <label class="field"><span>Your Notes text</span><textarea [(ngModel)]="notesText" (ngModelChange)="noteTextChanged()" [readOnly]="!!importPreview()" rows="8" placeholder="Paste one or many workouts here…"></textarea></label>
       @if (!importPreview()) {
@@ -277,8 +277,18 @@
       } @else {
         <div class="preview-summary"><div><b>{{ importPreview()!.workouts.length }}</b><span>workouts</span></div><div><b>{{ firstImportedExerciseCount }}</b><span>first workout exercises</span></div><div><b>{{ importPreview()!.warnings.length }}</b><span>needs review</span></div></div>
         <div class="preview-list">
-          @for (workout of importPreview()!.workouts; track workout.date + workout.name) {
-            <article><div><b>{{ workout.name }}</b><small>{{ workout.date }}</small></div><span>{{ workout.exercises.length }} exercises</span></article>
+          @for (workout of importPreview()!.workouts; track $index; let first = $first) {
+            <details class="preview-workout" [open]="first">
+              <summary><b>{{ workout.name }}</b><small>{{ workout.date }} · {{ workout.exercises.length }} exercises</small></summary>
+              @for (exercise of workout.exercises; track $index) {
+                <div class="preview-exercise"><b>{{ exercise.name }}</b>
+                  @for (set of exercise.sets; track set.set_number) {
+                    <small>Set {{ set.set_number }}: {{ set.weight ?? '—' }} {{ set.weight_unit }} × {{ set.reps ?? '—' }} reps</small>
+                  }
+                  @if (exercise.notes) { <small>Note: {{ exercise.notes }}</small> }
+                </div>
+              }
+            </details>
           }
           @for (warning of importPreview()!.warnings; track warning.line) {
             <article class="warning"><div><b>Line {{ warning.line }} skipped</b><small>{{ warning.text }}</small></div><span>Review</span></article>

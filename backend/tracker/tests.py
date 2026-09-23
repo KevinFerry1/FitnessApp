@@ -20,6 +20,19 @@ class NotesParserTests(TestCase):
         parsed = parse_exercise_line("Preacher curl 2x7,5 60lb")
         self.assertEqual([str(item.weight) for item in parsed.sets], ["60", "60"])
 
+    def test_comma_can_separate_single_rep_count_from_weight(self):
+        for line in ("Arsenal chest fly 2x7, 25lb (4)", "Arsenal chest fly 2x7,25lb (4)"):
+            with self.subTest(line=line):
+                parsed = parse_exercise_line(line)
+                self.assertEqual([item.reps for item in parsed.sets], [7, 7])
+                self.assertEqual([str(item.weight) for item in parsed.sets], ["25", "25"])
+                self.assertEqual(parsed.notes, "4")
+
+    def test_comma_weight_separator_keeps_explicit_rep_lists(self):
+        parsed = parse_exercise_line("Chest fly 2x7,6, 25lb (4)")
+        self.assertEqual([item.reps for item in parsed.sets], [7, 6])
+        self.assertEqual([str(item.weight) for item in parsed.sets], ["25", "25"])
+
     def test_recognizes_implicit_fractional_plate_shorthand(self):
         parsed = parse_exercise_line("Hip thrust 2x7,7 2.25")
         self.assertEqual(parsed.sets[0].weight_unit, "plate")
@@ -47,6 +60,17 @@ class NotesImportApiTests(TestCase):
             "client_id": "3779f177-203f-4202-ac4d-f7120e89e4a1"}, format="json")
         self.assertEqual(retry.status_code, 200)
         self.assertEqual(Workout.objects.count(), 1)
+
+    def test_preview_and_import_keep_weight_after_comma_separator(self):
+        client = APIClient()
+        payload = {"text": "9/21/26 upper B\nArsenal chest fly 2x7, 25lb (4)"}
+        preview = client.post("/api/imports/notes/", payload, format="json")
+        sets = preview.data["workouts"][0]["exercises"][0]["sets"]
+        self.assertEqual([(item["reps"], item["weight"]) for item in sets], [(7, "25"), (7, "25")])
+        self.assertEqual(Workout.objects.count(), 0)
+        committed = client.post("/api/imports/notes/", {**payload, "commit": True}, format="json")
+        self.assertEqual(committed.status_code, 201)
+        self.assertEqual(list(ExerciseSet.objects.values_list("reps", "weight")), [(7, 25), (7, 25)])
 
 
 class OfflineSyncTests(TestCase):

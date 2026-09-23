@@ -61,4 +61,17 @@ describe('AppComponent', () => {
     app.foodForm.protein = null;
     expect(app.canAddFood).toBeFalse();
   });
+
+  it('shows parsed set details in the Notes import preview', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.componentInstance.activeSheet.set('import');
+    fixture.componentInstance.importPreview.set({ workouts: [{ date: '2026-09-21', name: 'Upper B',
+      exercises: [{ name: 'Chest fly', notes: 'Seat 4',
+        sets: [{ set_number: 1, weight: '25', weight_unit: 'lb', reps: 7 }] }] }], warnings: [] });
+    fixture.detectChanges();
+    const preview: HTMLElement = fixture.nativeElement.querySelector('.preview-workout');
+    expect(preview).toBeTruthy();
+    expect(preview.textContent).toContain('25 lb × 7 reps');
+    expect(preview.textContent).toContain('Seat 4');
+  });
 });

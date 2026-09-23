@@ -13,6 +13,7 @@ WEIGHT_TOKEN = re.compile(
     r"(?<![\d,])(?P<weights>\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)*)\s*(?P<unit>lbs?|kg|plates?|plate)?\b",
     re.IGNORECASE,
 )
+LEADING_WEIGHT_UNIT = re.compile(r"^\s*(?:lbs?|kg|plates?)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -94,8 +95,16 @@ def parse_exercise_line(line: str) -> ParsedExercise | None:
         return None
 
     count = int(set_match.group("count"))
-    reps = [int(value.strip()) for value in set_match.group("reps").split(",")]
-    tail = original[set_match.end() :].strip(" ,-:")
+    reps_text = set_match.group("reps")
+    tail = original[set_match.end() :]
+    # In Notes, a comma can separate a single rep count from the weight:
+    # "2x7, 25lb" means two sets of 7 at 25 lb, not reps of 7 and 25.
+    # The unit immediately after the final number disambiguates this case.
+    if "," in reps_text and LEADING_WEIGHT_UNIT.match(tail):
+        reps_text, final_weight = reps_text.rsplit(",", 1)
+        tail = final_weight.strip() + tail
+    reps = [int(value.strip()) for value in reps_text.split(",")]
+    tail = tail.strip(" ,-:")
 
     # Parentheses are kept as notes (e.g. machine seat settings: "(4,1)").
     parenthetical = " ".join(value.strip() for value in re.findall(r"\(([^)]*)\)", tail) if value.strip())
