@@ -30,6 +30,27 @@ describe('AppComponent', () => {
     expect(app.selectedExerciseHistory.map((item) => item.workout.id)).toEqual([3, 2, 1]);
   });
 
+  it('shows workout management actions before the exercise list and opens the editor', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const app = fixture.componentInstance;
+    app.activeTab.set('progress');
+    app.viewedWorkout.set({ id: 1, name: 'Upper B', started_at: '2026-09-21T12:00:00Z',
+      completed_at: '2026-09-21T13:00:00Z', workout_exercises: [{ id: 2,
+        exercise: { id: 3, name: 'Chest fly' }, notes: '', sets: [] }] });
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    const actions = root.querySelector('.history-manage-actions');
+    const exercise = root.querySelector('.history-full-exercise');
+    expect(actions).toBeTruthy();
+    expect(exercise).toBeTruthy();
+    expect(actions!.compareDocumentPosition(exercise!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions!.textContent).toContain('Delete this day');
+    (actions!.querySelector('button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(root.querySelector('.history-editor')).toBeTruthy();
+    expect(root.textContent).toContain('Remove exercise');
+  });
+
   it('shows the multiplied nutrition before logging fractional servings', () => {
     const app = TestBed.createComponent(AppComponent).componentInstance;
     app.foodForm = { name: 'Yogurt', meal_type: 'breakfast', calories: 140, protein: 12.5, carbs: 16, fat: 2.2 };

@@ -155,13 +155,16 @@
             </div>
           } @else {
             <article class="history-day-head"><p class="eyebrow">{{ workout.started_at | date:'fullDate' }}</p><h2>{{ workout.name }}</h2><p>{{ workout.completed_at ? 'Completed' : 'In progress' }} · {{ workout.workout_exercises.length }} exercise{{ workout.workout_exercises.length === 1 ? '' : 's' }}</p>@if (workout.notes) { <p>{{ workout.notes }}</p> }</article>
+            <div class="history-manage-actions" aria-label="Workout day actions">
+              <button class="primary" (click)="editWorkout()">Edit this day</button>
+              <button class="history-delete-button" (click)="deleteViewedWorkout()" [disabled]="saving()">Delete this day</button>
+            </div>
             @for (exercise of workout.workout_exercises; track exercise.id) {
               <article class="history-full-exercise"><h3>{{ exercise.exercise.name }}</h3>
                 @for (set of exercise.sets; track set.id) { <div class="history-set"><span>Set {{ set.set_number }}{{ set.set_type && set.set_type !== 'working' ? ' · ' + set.set_type : '' }}</span><b>{{ set.weight ?? '—' }} {{ set.weight_unit }} × {{ set.reps ?? '—' }} reps</b></div> }
                 @if (exercise.notes) { <p>Note: {{ exercise.notes }}</p> }
               </article>
             } @empty { <article class="empty-state compact"><p>No exercises recorded.</p></article> }
-            <div class="history-actions"><button class="secondary" (click)="editWorkout()">Edit workout</button><button class="danger-text" (click)="deleteViewedWorkout()" [disabled]="saving()">Delete workout day</button></div>
           }
         } @else {
           <button class="import-callout" (click)="open('import')"><span>⇩</span><div><b>Import Apple Notes history</b><small>Paste your existing workout log</small></div><i>›</i></button>
