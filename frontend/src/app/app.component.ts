@@ -4,7 +4,7 @@ import { Component, OnInit, OnDestroy, signal, ChangeDetectionStrategy } from '@
 import { FormsModule } from '@angular/forms';
 import { OfflineStore, PendingChange } from './offline-store';
 import { parseNutritionLabel } from './nutrition-label';
-import { exerciseFamily, slotsForWorkout, variationsForSlot } from './exercise-catalog';
+import { exerciseFamily, exerciseHistoryKey, slotsForWorkout, variationsForSlot } from './exercise-catalog';
 
 type Tab = 'today' | 'food' | 'workout' | 'progress' | 'profile';
 type Sheet = 'food' | 'foodLog' | 'scanner' | 'weight' | 'workout' | 'exercise' | 'import' | 'profile' | 'savedMeal' | null;
@@ -501,10 +501,23 @@ export class AppComponent implements OnInit, OnDestroy {
       .slice(0, limit);
   }
 
+  historyForExerciseName(name: string, active: Workout, limit: number): Array<{ workout: Workout; exercise: WorkoutExercise }> {
+    const selectedKey = exerciseHistoryKey(name);
+    return [...this.workouts()]
+      .filter((workout) => workout.id !== active.id && (!active.client_id || workout.client_id !== active.client_id) &&
+        new Date(workout.started_at) <= new Date(active.started_at))
+      .sort((left, right) => Date.parse(right.started_at) - Date.parse(left.started_at))
+      .flatMap((workout) => workout.workout_exercises
+        .filter((exercise) => exercise.sets.length > 0 && exerciseHistoryKey(exercise.exercise.name) === selectedKey)
+        .map((exercise) => ({ workout, exercise })))
+      .slice(0, limit);
+  }
+
   historyForRow(row: WorkoutRow): Array<{ workout: Workout; exercise: WorkoutExercise }> {
     const active = this.activeWorkout();
     if (!active) return [];
-    return this.historyForFamily(row.family, active, this.entryFor(row).showThree ? 3 : 1);
+    const entry = this.entryFor(row);
+    return this.historyForExerciseName(entry.name, active, entry.showThree ? 3 : 1);
   }
 
   get lastSetTimer(): { label: string; value: string } {

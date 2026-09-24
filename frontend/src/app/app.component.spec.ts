@@ -134,4 +134,34 @@ describe('AppComponent', () => {
     expect(row.options).toContain('Single arm lateral raise');
     expect(app.historyForRow(row)[0].exercise.exercise.name).toBe('Single arm lateral raise');
   });
+
+  it('updates the previous panel when an exercise variation is selected', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const app = fixture.componentInstance;
+    const day = (id: number, date: string, name: string, weight: number) => ({
+      id, name: 'Upper B', started_at: date, completed_at: date,
+      workout_exercises: [{ id, exercise: { id, name }, notes: '',
+        sets: [{ id, set_number: 1, weight, weight_unit: 'lb', reps: 7 }] }],
+    });
+    app.activeTab.set('workout');
+    app.activeWorkout.set({ id: 10, name: 'Upper B', started_at: '2026-09-24T12:00:00Z',
+      completed_at: null, workout_exercises: [] });
+    app.workouts.set([day(3, '2026-09-23T12:00:00Z', 'Pec deck', 50),
+      day(2, '2026-09-22T12:00:00Z', 'Arsenal chest fly', 25),
+      day(1, '2026-09-21T12:00:00Z', 'Arsenal chest fly', 20)]);
+    fixture.detectChanges();
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.training-row')];
+    const flyRow = rows.find((row) => row.querySelector('.training-group')?.textContent === 'Chest fly')!;
+    const select = flyRow.querySelector<HTMLSelectElement>('.training-select select')!;
+    expect(flyRow.querySelector('.training-previous')?.textContent).toContain('50 lb');
+    expect(flyRow.querySelector('.training-previous')?.textContent).not.toContain('25 lb');
+    expect(flyRow.querySelector('.training-previous button')).toBeNull();
+
+    select.value = 'Arsenal chest fly';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(flyRow.querySelector('.training-previous')?.textContent).toContain('25 lb');
+    expect(flyRow.querySelector('.training-previous')?.textContent).not.toContain('50 lb');
+    expect(flyRow.querySelector('.training-previous button')?.textContent).toContain('See last 3');
+  });
 });

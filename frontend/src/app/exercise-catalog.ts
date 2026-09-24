@@ -33,6 +33,25 @@ function normalized(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Only merge different names for the same movement. A muscle-group match is too
+// broad for the Previous panel (for example, pec deck is not an Arsenal fly).
+const HISTORY_ALIASES: Record<string, string> = {
+  'arsenal incline press': 'arsenal incline chest press',
+  'incline db press': 'db incline press',
+  'tricep cable handle': 'handle cable tricep pushdown',
+  'cable handle tricep': 'handle cable tricep pushdown',
+  'tricep cable strap': 'strap cable tricep pushdown',
+  'cable strap tricep': 'strap cable tricep pushdown',
+  'incline db curl': 'db incline curl',
+  'cable lateral raise': 'cable handle lateral raise',
+  'standing cable abs': 'standing cable crunch',
+};
+
+export function exerciseHistoryKey(name: string): string {
+  const value = normalized(name);
+  return HISTORY_ALIASES[value] ?? value;
+}
+
 export function exerciseFamily(name: string): string {
   const value = normalized(name);
   if (/incline/.test(value) && /(press|bench)/.test(value)) return 'incline_press';

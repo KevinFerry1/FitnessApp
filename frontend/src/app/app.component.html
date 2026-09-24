@@ -101,15 +101,15 @@
             @if (entryFor(row); as entry) {
               <article class="training-row" [class.logged]="row.exercise?.sets?.length">
                 <div class="training-row-head"><span class="training-order">{{ row.exercise?.sets?.length ? '#' + (index + 1) : 'OPTIONAL' }}</span><span class="training-group">{{ row.label }}</span>@if (row.exercise) { <button class="training-remove" (click)="removeWorkoutRow(row)" [disabled]="saving()" [attr.aria-label]="'Remove ' + row.exercise.exercise.name">Remove</button> }</div>
-                <label class="training-select"><span>Exercise</span><select [(ngModel)]="entry.name" [attr.aria-label]="row.label + ' variation'">@for (option of row.options; track option) { <option [value]="option">{{ option }}</option> }</select></label>
+                <label class="training-select"><span>Exercise</span><select [(ngModel)]="entry.name" (ngModelChange)="entry.showThree = false" [attr.aria-label]="row.label + ' variation'">@for (option of row.options; track option) { <option [value]="option">{{ option }}</option> }</select></label>
                 @if (row.exercise?.sets?.length) {
                   <div class="training-saved-sets">@for (set of row.exercise!.sets; track set.id) { <div><span>Set {{ set.set_number }}</span><b>{{ set.weight ?? '—' }} {{ set.weight_unit === 'plate' ? 'plates' : set.weight_unit }} × {{ set.reps ?? '—' }}</b></div> }</div>
                 }
                 <div class="training-previous">
-                  <div class="training-previous-head"><b>Previous</b>@if (historyForFamily(row.family, workout, 3).length > 1) { <button (click)="entry.showThree = !entry.showThree">{{ entry.showThree ? 'Show last only' : 'See last 3' }}</button> }</div>
+                  <div class="training-previous-head"><b>Previous · {{ entry.name }}</b>@if (historyForExerciseName(entry.name, workout, 3).length > 1) { <button (click)="entry.showThree = !entry.showThree">{{ entry.showThree ? 'Show last only' : 'See last 3' }}</button> }</div>
                   @for (past of historyForRow(row); track past.workout.id + '-' + past.exercise.id) {
                     <div class="training-past"><b>{{ past.workout.started_at | date:'mediumDate' }} · {{ past.exercise.exercise.name }}</b><p>@for (set of past.exercise.sets; track set.id) { <span>{{ set.weight ?? '—' }} {{ set.weight_unit === 'plate' ? 'plates' : set.weight_unit }} × {{ set.reps ?? '—' }}@if (set.set_type && set.set_type !== 'working') { ({{ set.set_type }}) }@if (!$last) { · } </span> }</p>@if (past.exercise.notes) { <small>Exercise note: {{ past.exercise.notes }}</small> }@if (past.workout.notes) { <small>Workout note: {{ past.workout.notes }}</small> }</div>
-                  } @empty { <small>No earlier session in this category yet.</small> }
+                  } @empty { <small>No earlier session for this variation yet.</small> }
                 </div>
                 <div class="training-inputs"><label><span>Weight</span><input type="number" inputmode="decimal" min="0" step="0.25" [(ngModel)]="entry.weight" placeholder="0"></label><label><span>Unit</span><select [(ngModel)]="entry.unit" aria-label="Weight unit"><option value="lb">lb</option><option value="kg">kg</option><option value="plate">plates</option></select></label><label><span>Reps</span><input type="number" inputmode="numeric" min="0" [(ngModel)]="entry.reps" placeholder="8"></label></div>
                 @if (entry.unit === 'plate') { <small class="plate-hint">2.25 plates means two 45s and a 25 in your notation.</small> }
