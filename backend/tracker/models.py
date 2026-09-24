@@ -29,6 +29,7 @@ class AppSettings(TimeStampedModel):
     calorie_goal = models.PositiveIntegerField(default=2800)
     protein_goal = models.PositiveIntegerField(default=180)
     preferred_weight_unit = models.CharField(max_length=2, choices=[("lb", "lb"), ("kg", "kg")], default="lb")
+    target_weekly_gain = models.DecimalField(max_digits=5, decimal_places=2, default=0.5)
 
 
 class NotesImportBatch(models.Model):
@@ -55,6 +56,8 @@ class Food(TimeStampedModel):
     protein = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     carbohydrates = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     fat = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    sugar = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    added_sugar = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -77,6 +80,8 @@ class FoodLog(ClientMutationId, TimeStampedModel):
     protein_snapshot = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     carbs_snapshot = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     fat_snapshot = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    sugar_snapshot = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    added_sugar_snapshot = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
     # Small, compressed JPEGs live in SQLite so normal database backups include them.
     label_photo = models.BinaryField(null=True, blank=True, editable=False)
 
@@ -84,7 +89,7 @@ class FoodLog(ClientMutationId, TimeStampedModel):
         ordering = ["-logged_at"]
 
 
-class SavedMeal(TimeStampedModel):
+class SavedMeal(ClientMutationId, TimeStampedModel):
     """Reusable nutrition snapshot for a frequently eaten meal or recipe."""
 
     name = models.CharField(max_length=160)
@@ -94,6 +99,9 @@ class SavedMeal(TimeStampedModel):
     protein = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     carbohydrates = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     fat = models.DecimalField(max_digits=7, decimal_places=2, default=0)
+    sugar = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    added_sugar = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    components = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["name"]

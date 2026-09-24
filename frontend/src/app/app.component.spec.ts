@@ -54,11 +54,12 @@ describe('AppComponent', () => {
 
   it('shows the multiplied nutrition before logging fractional servings', () => {
     const app = TestBed.createComponent(AppComponent).componentInstance;
-    app.foodForm = { name: 'Yogurt', meal_type: 'breakfast', calories: 140, protein: 12.5, carbs: 16, fat: 2.2 };
+    app.foodForm = { name: 'Yogurt', meal_type: 'breakfast', calories: 140, protein: 12.5, carbs: 16, fat: 2.2,
+      sugar: 10, added_sugar: 4 };
     app.foodServings = 1.5;
     app.foodSource = 'label';
     expect(app.canAddFood).toBeTrue();
-    expect(app.foodTotals).toEqual({ calories: 210, protein: 18.75, carbs: 24, fat: 3.3 });
+    expect(app.foodTotals).toEqual({ calories: 210, protein: 18.75, carbs: 24, fat: 3.3, sugar: 15, added_sugar: 6 });
     app.foodForm.protein = null;
     expect(app.canAddFood).toBeFalse();
   });
@@ -163,5 +164,66 @@ describe('AppComponent', () => {
     expect(flyRow.querySelector('.training-previous')?.textContent).toContain('25 lb');
     expect(flyRow.querySelector('.training-previous')?.textContent).not.toContain('50 lb');
     expect(flyRow.querySelector('.training-previous button')?.textContent).toContain('See last 3');
+  });
+
+  it('combines selected logged foods into one reusable recipe without changing today', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    const today = app.today();
+    today.food_logs = [
+      { id: 1, name_snapshot: 'Oats', meal_type: 'breakfast', serving_quantity: 1,
+        serving_description_snapshot: 'cup', calories_snapshot: 150, protein_snapshot: 5,
+        carbs_snapshot: 27, fat_snapshot: 3, sugar_snapshot: 1, added_sugar_snapshot: 0,
+        nutrition_source: 'manual', label_photo_url: null, logged_at: new Date().toISOString() },
+      { id: 2, name_snapshot: 'Milk', meal_type: 'breakfast', serving_quantity: 1.5,
+        serving_description_snapshot: 'cup', calories_snapshot: 180, protein_snapshot: 12,
+        carbs_snapshot: 18, fat_snapshot: 7, sugar_snapshot: 18, added_sugar_snapshot: null,
+        nutrition_source: 'manual', label_photo_url: null, logged_at: new Date().toISOString() },
+    ];
+    app.today.set({ ...today });
+    app.toggleRecipeLog(1);
+    app.toggleRecipeLog(2);
+    app.saveSelectedFoodAsMeal();
+    expect(app.savedMealForm.calories).toBe(330);
+    expect(app.savedMealForm.protein).toBe(17);
+    expect(app.savedMealForm.sugar).toBe(19);
+    expect(app.savedMealForm.added_sugar).toBeNull();
+    expect(app.savedMealForm.components).toEqual([{ name: 'Oats', servings: 1 }, { name: 'Milk', servings: 1.5 }]);
+    expect(app.today().food_logs.length).toBe(2);
+  });
+
+  it('compares recent and prior morning-weight averages with the chosen target', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    const morning = (daysAgo: number) => {
+      const date = new Date();
+      date.setDate(date.getDate() - daysAgo);
+      date.setHours(8, 0, 0, 0);
+      return date.toISOString();
+    };
+    app.weightEntries.set([
+      { id: 1, weight: 180.5, unit: 'lb', recorded_at: morning(0), notes: '' },
+      { id: 2, weight: 180.5, unit: 'lb', recorded_at: morning(2), notes: '' },
+      { id: 5, weight: 180.5, unit: 'lb', recorded_at: morning(4), notes: '' },
+      { id: 3, weight: 180, unit: 'lb', recorded_at: morning(8), notes: '' },
+      { id: 4, weight: 180, unit: 'lb', recorded_at: morning(10), notes: '' },
+      { id: 6, weight: 180, unit: 'lb', recorded_at: morning(12), notes: '' },
+    ]);
+    expect(app.weightTrend.change).toBeCloseTo(0.5, 2);
+    expect(app.weightTrendStatus).toContain('Near');
+  });
+
+  it('opens a logged food for editing with its original per-serving values', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    app.openFoodLog({ id: 7, name_snapshot: 'Cereal', meal_type: 'breakfast', serving_quantity: 2,
+      serving_description_snapshot: '1 bowl', calories_snapshot: 320, protein_snapshot: 8,
+      carbs_snapshot: 60, fat_snapshot: 4, sugar_snapshot: 24, added_sugar_snapshot: 18,
+      per_serving: { calories: 160, protein: 4, carbohydrates: 30, fat: 2, sugar: 12, added_sugar: 9 },
+      nutrition_source: 'barcode', label_photo_url: null, logged_at: new Date().toISOString() });
+    app.editFoodLog();
+    expect(app.activeSheet()).toBe('food');
+    expect(app.foodServings).toBe(2);
+    expect(app.foodForm.added_sugar).toBe(9);
+    expect(app.foodTotals.added_sugar).toBe(18);
+    app.foodServings = 3;
+    expect(app.foodTotals.calories).toBe(480);
   });
 });

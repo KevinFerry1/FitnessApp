@@ -252,4 +252,52 @@ class FoodFeaturesTests(TestCase):
         self.assertEqual(response.data["serving_description"], "150 g")
         self.assertEqual(self.client.get("/api/food-lookup/not-a-code/").status_code, 400)
 
+    def test_food_edit_replaces_servings_and_sugar_without_duplicate_log(self):
+        payload = {"name": "Yogurt", "meal_type": "breakfast", "calories": 100,
+                   "protein": 8, "carbohydrates": 16, "fat": 2, "sugar": 10,
+                   "added_sugar": 4, "serving_quantity": 1,
+                   "logged_at": "2026-09-22T10:00:00-04:00"}
+        client_id = "e72bc6ab-831a-4076-bad8-3f6a8095f37a"
+        created = self.client.post("/api/sync/", {"kind": "food_log", "client_id": client_id,
+                                               "payload": payload}, format="json")
+        self.assertEqual(created.status_code, 201)
+        edited = {**payload, "serving_quantity": 2, "added_sugar": 3}
+        response = self.client.post("/api/sync/", {"kind": "food_log_update",
+                          "client_id": "951b81aa-6c0b-4d10-8ea3-38e047762ebc",
+                          "payload": {**edited, "server_id": created.data["id"]}}, format="json")
+        self.assertEqual(response.status_code, 200)
+        log = FoodLog.objects.get()
+        self.assertEqual(log.calories_snapshot, 200)
+        self.assertEqual(log.sugar_snapshot, 20)
+        self.assertEqual(log.added_sugar_snapshot, 6)
+        self.assertEqual(FoodLog.objects.count(), 1)
+        self.assertEqual(self.client.get("/api/food-logs/").data[0]["per_serving"]["added_sugar"], "3.00")
+        # A retry of an edited, originally unsynced log uses its original client ID.
+        edited["serving_quantity"] = 3
+        retry = self.client.post("/api/sync/", {"kind": "food_log", "client_id": client_id,
+                                               "payload": edited}, format="json")
+        self.assertTrue(retry.data["duplicate"])
+        self.assertEqual(FoodLog.objects.get().calories_snapshot, 300)
+
+    def test_unknown_added_sugar_is_not_treated_as_zero_and_recipe_components_survive(self):
+        meal = {"name": "Breakfast", "serving_description": "1 bowl", "meal_type": "breakfast",
+                "calories": 450, "protein": 30, "carbohydrates": 55, "fat": 12,
+                "sugar": None, "added_sugar": None,
+                "components": [{"name": "Oats", "servings": 1}, {"name": "Milk", "servings": 1.5}]}
+        response = self.client.post("/api/saved-meals/", meal, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["components"], meal["components"])
+        self.assertIsNone(response.data["added_sugar"])
+        client_id = "9c87a919-41d3-4b4e-a2f1-c098bc81449c"
+        queued = self.client.post("/api/sync/", {"kind": "saved_meal", "client_id": client_id,
+                                            "payload": {**meal, "server_id": response.data["id"]}}, format="json")
+        self.assertEqual(queued.status_code, 200)
+        self.assertEqual(SavedMeal.objects.count(), 1)
+        self.assertEqual(self.client.post("/api/sync/", {"kind": "saved_meal", "client_id": client_id,
+                                            "payload": {**meal, "server_id": response.data["id"]}}, format="json").status_code, 200)
+        deleted = self.client.post("/api/sync/", {"kind": "saved_meal_delete", "client_id": client_id,
+                                             "payload": {"meal_client_id": client_id}}, format="json")
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(SavedMeal.objects.count(), 0)
+
 # Create your tests here.

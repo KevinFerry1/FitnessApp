@@ -1,12 +1,12 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Component, OnInit, OnDestroy, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, ChangeDetectionStrategy, NgZone } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { OfflineStore, PendingChange } from './offline-store';
 import { parseNutritionLabel } from './nutrition-label';
 import { exerciseFamily, exerciseHistoryKey, slotsForWorkout, variationsForSlot } from './exercise-catalog';
 
-type Tab = 'today' | 'food' | 'workout' | 'progress' | 'profile';
+type Tab = 'today' | 'food' | 'workout' | 'progress' | 'weight' | 'profile';
 type Sheet = 'food' | 'foodLog' | 'scanner' | 'weight' | 'workout' | 'exercise' | 'import' | 'profile' | 'savedMeal' | null;
 type NutritionSource = 'manual' | 'barcode' | 'label' | 'saved_meal';
 type EntityId = number | string;
@@ -21,16 +21,21 @@ interface ProfileSettings {
   calorie_goal: number;
   protein_goal: number;
   preferred_weight_unit: 'lb' | 'kg';
+  target_weekly_gain: number;
 }
 
 interface FoodLog {
   id: EntityId;
+  client_id?: string | null;
   name_snapshot: string;
   meal_type: string;
   calories_snapshot: number;
   protein_snapshot: number;
   carbs_snapshot: number;
   fat_snapshot: number;
+  sugar_snapshot?: number | null;
+  added_sugar_snapshot?: number | null;
+  per_serving?: { calories: number; protein: number; carbohydrates: number; fat: number; sugar: number | null; added_sugar: number | null } | null;
   serving_quantity: number | string;
   serving_description_snapshot: string;
   nutrition_source: NutritionSource;
@@ -67,7 +72,8 @@ interface Workout {
 }
 
 interface SavedMeal {
-  id: number;
+  id: EntityId;
+  client_id?: string | null;
   name: string;
   serving_description: string;
   meal_type: string;
@@ -75,7 +81,12 @@ interface SavedMeal {
   protein: number;
   carbohydrates: number;
   fat: number;
+  sugar: number | null;
+  added_sugar: number | null;
+  components: Array<{ name: string; servings: number }>;
 }
+
+interface WeightEntry { id: EntityId; weight: number; unit: 'lb' | 'kg'; recorded_at: string; notes: string }
 
 interface WorkoutDraft {
   client_id: string;
@@ -95,7 +106,8 @@ interface WorkoutDraft {
 
 interface TodayResponse {
   date: string;
-  nutrition: { calories: number; protein: number; carbs: number; fat: number };
+  nutrition: { calories: number; protein: number; carbs: number; fat: number; sugar: number; added_sugar: number;
+    sugar_unknown_count: number; added_sugar_unknown_count: number };
   food_logs: FoodLog[];
   workouts: Workout[];
   latest_weight: { weight: string; unit: string } | null;
@@ -145,6 +157,7 @@ export class AppComponent implements OnInit, OnDestroy {
     { id: 'food', label: 'Food', icon: '◒' },
     { id: 'workout', label: 'Workout', icon: '◇' },
     { id: 'progress', label: 'Progress', icon: '↗' },
+    { id: 'weight', label: 'Weight', icon: '⚖' },
     { id: 'profile', label: 'Profile', icon: '○' },
   ];
 
@@ -156,19 +169,23 @@ export class AppComponent implements OnInit, OnDestroy {
   toast = signal('');
   today = signal<TodayResponse>({
     date: localDateString(),
-    nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0, sugar: 0, added_sugar: 0,
+      sugar_unknown_count: 0, added_sugar_unknown_count: 0 },
     food_logs: [],
     workouts: [],
     latest_weight: null,
   });
   workouts = signal<Workout[]>([]);
   savedMeals = signal<SavedMeal[]>([]);
+  weightEntries = signal<WeightEntry[]>([]);
   activeWorkout = signal<Workout | null>(null);
   viewedWorkout = signal<Workout | null>(null);
-  profile = signal<ProfileSettings>({ display_name: 'Your profile', calorie_goal: 2800, protein_goal: 180, preferred_weight_unit: 'lb' });
+  profile = signal<ProfileSettings>({ display_name: 'Your profile', calorie_goal: 2800, protein_goal: 180,
+    preferred_weight_unit: 'lb', target_weekly_gain: 0.5 });
   importPreview = signal<{ workouts: ParsedWorkout[]; warnings: Array<{ line: number; text: string; message: string }> } | null>(null);
 
-  foodForm = { name: '', meal_type: 'lunch', calories: null as number | null, protein: null as number | null, carbs: null as number | null, fat: null as number | null };
+  foodForm = { name: '', meal_type: 'lunch', calories: null as number | null, protein: null as number | null,
+    carbs: null as number | null, fat: null as number | null, sugar: null as number | null, added_sugar: null as number | null };
   foodServings = 1;
   foodServingDescription = '1 serving';
   foodSource: NutritionSource = 'manual';
@@ -178,6 +195,9 @@ export class AppComponent implements OnInit, OnDestroy {
   labelScanning = signal(false);
   barcodeNotFound = signal(false);
   selectedFoodLog: FoodLog | null = null;
+  editingFoodLog: FoodLog | null = null;
+  recipeSelectionMode = false;
+  selectedRecipeLogIds = new Set<EntityId>();
   private labelScanToken = 0;
   private labelWorker: { terminate(): Promise<unknown> } | null = null;
   weightForm: { weight: number | null; unit: 'lb' | 'kg'; notes: string } = { weight: null, unit: 'lb', notes: '' };
@@ -191,10 +211,12 @@ export class AppComponent implements OnInit, OnDestroy {
   historyEdit = false;
   historyDate = '';
   reviewImportsOnly = false;
-  savedMealForm: SavedMeal = { id: 0, name: '', serving_description: '1 serving', meal_type: 'lunch', calories: 0, protein: 0, carbohydrates: 0, fat: 0 };
+  savedMealForm: SavedMeal = { id: 0, name: '', serving_description: '1 serving', meal_type: 'lunch',
+    calories: 0, protein: 0, carbohydrates: 0, fat: 0, sugar: null, added_sugar: null, components: [] };
   barcode = '';
   lookupServing = '';
   barcodeLoading = signal(false);
+  barcodeScanStatus = signal('');
   private barcodeLookupToken = 0;
   private scannerControls: { stop(): void } | null = null;
   notesText = '';
@@ -203,11 +225,13 @@ export class AppComponent implements OnInit, OnDestroy {
   private currentDraft: WorkoutDraft | null = null;
   private serverToday: TodayResponse = structuredClone(this.today());
   private serverWorkouts: Workout[] = [];
+  private serverWeightEntries: WeightEntry[] = [];
+  private serverSavedMeals: SavedMeal[] = [];
   private clockInterval?: number;
   private entryWorkoutId = '';
   private workoutEntries: Record<string, WorkoutEntry> = {};
 
-  constructor(private readonly http: HttpClient, readonly offline: OfflineStore) {}
+  constructor(private readonly http: HttpClient, readonly offline: OfflineStore, private readonly zone: NgZone) {}
 
   ngOnInit(): void {
     this.clockInterval = window.setInterval(() => this.clockNow.set(Date.now()), 1000);
@@ -224,9 +248,10 @@ export class AppComponent implements OnInit, OnDestroy {
       await this.offline.init();
       this.serverToday = await this.offline.getCached<TodayResponse>('today') ?? this.serverToday;
       this.serverWorkouts = await this.offline.getCached<Workout[]>('workouts') ?? [];
-      this.savedMeals.set(await this.offline.getCached<SavedMeal[]>('savedMeals') ?? []);
+      this.serverWeightEntries = await this.offline.getCached<WeightEntry[]>('weightEntries') ?? [];
+      this.serverSavedMeals = await this.offline.getCached<SavedMeal[]>('savedMeals') ?? [];
       this.currentDraft = await this.offline.getCached<WorkoutDraft>('activeDraft');
-      this.profile.set(await this.offline.getCached<ProfileSettings>('profile') ?? this.profile());
+      this.profile.set({ ...this.profile(), ...(await this.offline.getCached<ProfileSettings>('profile') ?? {}) });
       const notesDraft = await this.offline.getCached<{ text: string; id: string }>('notesDraft');
       if (notesDraft) { this.notesText = notesDraft.text; this.notesImportId = notesDraft.id; }
       await this.applyLocalState();
@@ -251,8 +276,9 @@ export class AppComponent implements OnInit, OnDestroy {
     });
     this.loadWorkouts();
     this.loadSavedMeals();
+    this.loadWeightEntries();
     this.http.get<ProfileSettings>(`${this.api}/profile/`).subscribe({ next: (data) => {
-      this.profile.set(data);
+      this.profile.set({ ...this.profile(), ...data });
       void this.offline.cache('profile', data).catch(() => {});
       void this.applyLocalState();
     } });
@@ -265,11 +291,13 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   open(sheet: Sheet): void {
+    if (sheet === 'food') this.editingFoodLog = null;
     this.activeSheet.set(sheet);
     if (sheet === 'import') this.importPreview.set(null);
     if (sheet === 'profile') this.profileForm = { ...this.profile() };
     if (sheet === 'weight') this.weightForm.unit = this.profile().preferred_weight_unit;
-    if (sheet === 'savedMeal') this.savedMealForm = { id: 0, name: '', serving_description: '1 serving', meal_type: 'lunch', calories: 0, protein: 0, carbohydrates: 0, fat: 0 };
+    if (sheet === 'savedMeal') this.savedMealForm = { id: 0, name: '', serving_description: '1 serving', meal_type: 'lunch',
+      calories: 0, protein: 0, carbohydrates: 0, fat: 0, sugar: null, added_sugar: null, components: [] };
   }
 
   close(): void {
@@ -290,20 +318,67 @@ export class AppComponent implements OnInit, OnDestroy {
     const food = this.foodForm;
     return !!food.name.trim() && food.calories !== null && Number.isFinite(Number(food.calories)) &&
       Number(food.calories) >= 0 && Number(this.foodServings) > 0 && Number(this.foodServings) <= 100 &&
+      [food.sugar, food.added_sugar].every((value) => value === null || Number.isFinite(Number(value)) && Number(value) >= 0) &&
+      (food.sugar === null || food.added_sugar === null || Number(food.added_sugar) <= Number(food.sugar)) &&
       (this.foodSource === 'manual' || [food.protein, food.carbs, food.fat]
         .every((value) => value !== null && Number.isFinite(Number(value)) && Number(value) >= 0));
   }
 
-  get foodTotals(): { calories: number; protein: number; carbs: number; fat: number } {
+  get foodTotals(): { calories: number; protein: number; carbs: number; fat: number; sugar: number | null; added_sugar: number | null } {
     const quantity = Number(this.foodServings) || 0;
     const round2 = (value: number | null) => Math.round(Number(value ?? 0) * quantity * 100) / 100;
     return { calories: Math.round(Number(this.foodForm.calories ?? 0) * quantity),
-      protein: round2(this.foodForm.protein), carbs: round2(this.foodForm.carbs), fat: round2(this.foodForm.fat) };
+      protein: round2(this.foodForm.protein), carbs: round2(this.foodForm.carbs), fat: round2(this.foodForm.fat),
+      sugar: this.foodForm.sugar === null ? null : round2(this.foodForm.sugar),
+      added_sugar: this.foodForm.added_sugar === null ? null : round2(this.foodForm.added_sugar) };
   }
 
   openFoodLog(log: FoodLog): void {
     this.selectedFoodLog = log;
     this.activeSheet.set('foodLog');
+  }
+
+  editFoodLog(): void {
+    const log = this.selectedFoodLog;
+    if (!log) return;
+    this.editingFoodLog = log;
+    const quantity = Number(log.serving_quantity) || 1;
+    const per = log.per_serving;
+    this.foodForm = { name: log.name_snapshot, meal_type: log.meal_type,
+      calories: per?.calories == null ? Math.round(Number(log.calories_snapshot) / quantity) : Number(per.calories),
+      protein: per?.protein == null ? Number(log.protein_snapshot) / quantity : Number(per.protein),
+      carbs: per?.carbohydrates == null ? Number(log.carbs_snapshot) / quantity : Number(per.carbohydrates),
+      fat: per?.fat == null ? Number(log.fat_snapshot) / quantity : Number(per.fat),
+      sugar: per?.sugar == null ? (log.sugar_snapshot == null ? null : Number(log.sugar_snapshot) / quantity) : Number(per.sugar),
+      added_sugar: per?.added_sugar == null ? (log.added_sugar_snapshot == null ? null : Number(log.added_sugar_snapshot) / quantity) : Number(per.added_sugar) };
+    this.foodServings = quantity;
+    this.foodServingDescription = log.serving_description_snapshot;
+    this.foodSource = log.nutrition_source;
+    this.labelPhotoDataUrl = null;
+    this.activeSheet.set('food');
+  }
+
+  toggleRecipeLog(id: EntityId): void {
+    if (this.selectedRecipeLogIds.has(id)) this.selectedRecipeLogIds.delete(id);
+    else this.selectedRecipeLogIds.add(id);
+  }
+
+  saveSelectedFoodAsMeal(): void {
+    const chosen = this.today().food_logs.filter((log) => this.selectedRecipeLogIds.has(log.id));
+    if (!chosen.length) return;
+    const sum = (field: 'calories_snapshot' | 'protein_snapshot' | 'carbs_snapshot' | 'fat_snapshot') =>
+      chosen.reduce((total, log) => total + Number(log[field] ?? 0), 0);
+    const sumKnown = (field: 'sugar_snapshot' | 'added_sugar_snapshot') =>
+      chosen.every((log) => log[field] != null) ? Math.round(chosen.reduce((total, log) => total + Number(log[field]), 0) * 100) / 100 : null;
+    this.savedMealForm = { id: 0, name: chosen.length === 1 ? chosen[0].name_snapshot : '',
+      serving_description: '1 recipe',
+      meal_type: chosen[0].meal_type, calories: Math.round(sum('calories_snapshot')),
+      protein: Math.round(sum('protein_snapshot') * 100) / 100,
+      carbohydrates: Math.round(sum('carbs_snapshot') * 100) / 100,
+      fat: Math.round(sum('fat_snapshot') * 100) / 100,
+      sugar: sumKnown('sugar_snapshot'), added_sugar: sumKnown('added_sugar_snapshot'),
+      components: chosen.map((log) => ({ name: log.name_snapshot, servings: Number(log.serving_quantity) })) };
+    this.activeSheet.set('savedMeal');
   }
 
   private stopScanner(): void {
@@ -317,6 +392,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   async startScanner(): Promise<void> {
+    this.barcodeScanStatus.set('Searching for a barcode…');
     this.activeSheet.set('scanner');
     try {
       const { BrowserMultiFormatReader } = await import('@zxing/browser');
@@ -327,18 +403,41 @@ export class AppComponent implements OnInit, OnDestroy {
       const controls = await reader.decodeFromConstraints({ video: { facingMode: 'environment' }, audio: false }, video,
         (result, _error, scanner) => {
           if (!result || this.activeSheet() !== 'scanner') return;
-          this.barcode = result.getText();
-          scanner.stop();
-          this.scannerControls = null;
-          this.activeSheet.set('food');
-          this.lookupBarcode();
+          this.zone.run(() => {
+            this.barcode = result.getText();
+            this.barcodeScanStatus.set(`Detected ${this.barcode}. Looking up food…`);
+            scanner.stop();
+            this.scannerControls = null;
+            this.activeSheet.set('food');
+            this.lookupBarcode();
+          });
         });
       if (this.activeSheet() === 'scanner') this.scannerControls = controls;
       else controls.stop();
     } catch {
       this.activeSheet.set('food');
-      this.showToast('Camera unavailable; enter the barcode number instead');
+      this.barcodeScanStatus.set('Live camera scan unavailable. Try a photo or enter the number.');
     }
+  }
+
+  async captureBarcodeImage(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    this.barcodeScanStatus.set('Reading barcode from photo…');
+    try {
+      const { BrowserMultiFormatReader } = await import('@zxing/browser');
+      const result = await new BrowserMultiFormatReader().decodeFromImageUrl(url);
+      this.barcode = result.getText();
+      this.barcodeScanStatus.set(`Detected ${this.barcode}. Looking up food…`);
+      this.stopScanner();
+      this.activeSheet.set('food');
+      this.lookupBarcode();
+    } catch {
+      this.barcodeScanStatus.set('Could not read that photo. Try a closer, well-lit shot or enter the number.');
+    } finally { URL.revokeObjectURL(url); }
   }
 
   async addFood(): Promise<void> {
@@ -351,15 +450,25 @@ export class AppComponent implements OnInit, OnDestroy {
       protein: this.foodForm.protein ?? 0,
       carbohydrates: this.foodForm.carbs ?? 0,
       fat: this.foodForm.fat ?? 0,
+      sugar: this.foodForm.sugar,
+      added_sugar: this.foodForm.added_sugar,
       serving_quantity: this.foodServings,
       serving_description: this.foodServingDescription.trim() || '1 serving',
       nutrition_source: this.foodSource,
       label_photo_data_url: this.labelPhotoDataUrl ?? '',
-      logged_at: new Date().toISOString(),
+      logged_at: this.editingFoodLog?.logged_at ?? new Date().toISOString(),
     };
     try {
-      await this.offline.enqueue('food_log', payload);
-      this.foodForm = { name: '', meal_type: 'lunch', calories: null, protein: null, carbs: null, fat: null };
+      const editing = this.editingFoodLog;
+      if (editing && typeof editing.id === 'number') {
+        await this.offline.enqueue('food_log_update', { ...payload, server_id: editing.id });
+      } else {
+        await this.offline.enqueue('food_log', payload, editing ? String(editing.id) : crypto.randomUUID());
+      }
+      this.editingFoodLog = null;
+      this.selectedFoodLog = null;
+      this.foodForm = { name: '', meal_type: 'lunch', calories: null, protein: null, carbs: null, fat: null,
+        sugar: null, added_sugar: null };
       this.foodServings = 1;
       this.foodServingDescription = '1 serving';
       this.foodSource = 'manual';
@@ -368,7 +477,7 @@ export class AppComponent implements OnInit, OnDestroy {
       this.labelScanStatus.set('');
       this.lookupServing = '';
       await this.applyLocalState();
-      this.finishAction('Food saved on device');
+      this.finishAction(editing ? 'Food changes saved on device' : 'Food saved on device');
     } catch {
       this.failAction('Could not save food on this device');
     }
@@ -385,6 +494,35 @@ export class AppComponent implements OnInit, OnDestroy {
     } catch {
       this.failAction('Could not save weight on this device');
     }
+  }
+
+  get weightTrend(): { recent: number | null; previous: number | null; change: number | null; count: number } {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayMs = 86400000;
+    const daily = new Map<number, number>();
+    for (const entry of [...this.weightEntries()].reverse()) {
+      const date = new Date(entry.recorded_at);
+      const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+      daily.set(day, Number(entry.weight) * (entry.unit === 'kg' ? 2.20462262 : 1));
+    }
+    const average = (from: number, to: number): number | null => {
+      const values = [...daily].filter(([day]) => day >= from && day < to).map(([, weight]) => weight);
+      return values.length >= 3 ? values.reduce((sum, weight) => sum + weight, 0) / values.length : null;
+    };
+    const recent = average(today.getTime() - 6 * dayMs, today.getTime() + dayMs);
+    const previous = average(today.getTime() - 13 * dayMs, today.getTime() - 6 * dayMs);
+    return { recent, previous, change: recent === null || previous === null ? null : recent - previous,
+      count: daily.size };
+  }
+
+  get weightTrendStatus(): string {
+    const change = this.weightTrend.change;
+    if (change === null) return 'Keep logging mornings to compare two weeks.';
+    const target = Number(this.profile().target_weekly_gain ?? 0.5);
+    if (change < target - 0.15) return 'Below your chosen weekly target';
+    if (change > target + 0.15) return 'Above your chosen weekly target';
+    return 'Near your chosen weekly target';
   }
 
   async startWorkout(): Promise<void> {
@@ -667,7 +805,8 @@ export class AppComponent implements OnInit, OnDestroy {
 
   async saveProfile(): Promise<void> {
     const next = { ...this.profileForm, display_name: this.profileForm.display_name.trim() || 'Your profile' };
-    if (next.calorie_goal < 1 || next.protein_goal < 1) return;
+    if (next.calorie_goal < 1 || next.protein_goal < 1 || !Number.isFinite(Number(next.target_weekly_gain)) ||
+      Number(next.target_weekly_gain) < 0 || Number(next.target_weekly_gain) > 10) return;
     this.saving.set(true);
     try {
       await this.offline.enqueue('profile', next);
@@ -826,7 +965,8 @@ export class AppComponent implements OnInit, OnDestroy {
     try {
       await this.offline.enqueue('food_log', { name: meal.name, meal_type: meal.meal_type,
         calories: meal.calories, protein: meal.protein, carbohydrates: meal.carbohydrates,
-        fat: meal.fat, serving_quantity: 1, serving_description: meal.serving_description,
+        fat: meal.fat, sugar: meal.sugar, added_sugar: meal.added_sugar,
+        serving_quantity: 1, serving_description: meal.serving_description,
         nutrition_source: 'saved_meal', logged_at: new Date().toISOString() });
       await this.applyLocalState();
       this.showToast(`${meal.name} saved on device`);
@@ -841,7 +981,8 @@ export class AppComponent implements OnInit, OnDestroy {
   useSavedMeal(meal: SavedMeal): void {
     this.barcodeLookupToken += 1;
     this.foodForm = { name: meal.name, meal_type: meal.meal_type, calories: meal.calories,
-      protein: meal.protein, carbs: meal.carbohydrates, fat: meal.fat };
+      protein: meal.protein, carbs: meal.carbohydrates, fat: meal.fat,
+      sugar: meal.sugar ?? null, added_sugar: meal.added_sugar ?? null };
     this.foodServings = 1;
     this.foodServingDescription = meal.serving_description;
     this.foodSource = 'saved_meal';
@@ -853,34 +994,47 @@ export class AppComponent implements OnInit, OnDestroy {
   saveFoodAsMeal(): void {
     if (!this.canAddFood) return;
     this.savedMealForm = {
-      id: 0, name: this.foodForm.name.trim(), serving_description: this.lookupServing || '1 serving',
+      id: 0, name: this.foodForm.name.trim(), serving_description: this.foodServingDescription.trim() || '1 serving',
       meal_type: this.foodForm.meal_type, calories: this.foodForm.calories!,
       protein: this.foodForm.protein ?? 0, carbohydrates: this.foodForm.carbs ?? 0,
-      fat: this.foodForm.fat ?? 0,
+      fat: this.foodForm.fat ?? 0, sugar: this.foodForm.sugar,
+      added_sugar: this.foodForm.added_sugar, components: [],
     };
     this.activeSheet.set('savedMeal');
   }
 
-  saveSavedMeal(): void {
+  async saveSavedMeal(): Promise<void> {
     const meal = this.savedMealForm;
     if (!meal.name.trim() || [meal.calories, meal.protein, meal.carbohydrates, meal.fat]
       .some((value) => value === null || !Number.isFinite(Number(value)) || Number(value) < 0)) {
       this.showToast('Enter a name and non-negative macros for one serving');
       return;
     }
+    if (meal.sugar !== null && meal.added_sugar !== null && Number(meal.added_sugar) > Number(meal.sugar)) {
+      this.showToast('Added sugar cannot exceed total sugar'); return;
+    }
     this.saving.set(true);
-    const url = meal.id ? `${this.api}/saved-meals/${meal.id}/` : `${this.api}/saved-meals/`;
-    const request = meal.id ? this.http.put<SavedMeal>(url, meal) : this.http.post<SavedMeal>(url, meal);
-    request.subscribe({ next: () => {
-      this.saving.set(false); this.close(); this.loadSavedMeals(); this.showToast('Saved meal ready to quick-log');
-    }, error: () => this.failAction('Connect to the Pi to save a reusable meal') });
+    try {
+      const id = meal.client_id ?? (typeof meal.id === 'string' ? meal.id : crypto.randomUUID());
+      await this.offline.enqueue('saved_meal', { ...meal, server_id: typeof meal.id === 'number' && meal.id > 0 ? meal.id : undefined }, id);
+      await this.applyLocalState();
+      this.saving.set(false); this.close();
+      this.recipeSelectionMode = false; this.selectedRecipeLogIds.clear();
+      this.showToast('Recipe saved on device and ready to quick-log');
+    } catch { this.failAction('Could not save recipe on this device'); }
   }
 
-  deleteSavedMeal(meal: SavedMeal): void {
+  async deleteSavedMeal(meal: SavedMeal): Promise<void> {
     if (!window.confirm(`Delete saved meal ${meal.name}? Your existing food logs will stay.`)) return;
-    this.http.delete(`${this.api}/saved-meals/${meal.id}/`).subscribe({ next: () => {
-      this.loadSavedMeals(); this.showToast('Saved meal removed');
-    }, error: () => this.showToast('Connect to the Pi to delete this meal') });
+    try {
+      const id = meal.client_id ?? (typeof meal.id === 'string' ? meal.id : crypto.randomUUID());
+      await this.offline.enqueue('saved_meal_delete', {
+        server_id: typeof meal.id === 'number' ? meal.id : undefined,
+        meal_client_id: meal.client_id ?? (typeof meal.id === 'string' ? meal.id : undefined),
+      }, id);
+      await this.applyLocalState();
+      this.showToast('Saved meal removed on device');
+    } catch { this.showToast('Could not remove saved meal on this device'); }
   }
 
   lookupBarcode(): void {
@@ -894,7 +1048,8 @@ export class AppComponent implements OnInit, OnDestroy {
     this.barcodeNotFound.set(false);
     this.barcodeLoading.set(true);
     this.http.get<{ name: string; brand: string; calories: number | null; protein: number | null;
-      carbohydrates: number | null; fat: number | null; serving_description: string }>(`${this.api}/food-lookup/${code}/`).subscribe({
+      carbohydrates: number | null; fat: number | null; sugar: number | null; added_sugar: number | null;
+      serving_description: string }>(`${this.api}/food-lookup/${code}/`).subscribe({
       next: (product) => {
         if (token !== this.barcodeLookupToken) return;
         this.foodForm.name = product.brand ? `${product.name} — ${product.brand}` : product.name;
@@ -902,18 +1057,22 @@ export class AppComponent implements OnInit, OnDestroy {
         this.foodForm.protein = product.protein === null ? null : Number(product.protein);
         this.foodForm.carbs = product.carbohydrates === null ? null : Number(product.carbohydrates);
         this.foodForm.fat = product.fat === null ? null : Number(product.fat);
+        this.foodForm.sugar = product.sugar == null ? null : Number(product.sugar);
+        this.foodForm.added_sugar = product.added_sugar == null ? null : Number(product.added_sugar);
         this.lookupServing = product.serving_description || '100 g';
         this.foodServingDescription = this.lookupServing;
         this.foodServings = 1;
         this.foodSource = 'barcode';
         this.labelPhotoDataUrl = null;
         this.barcodeLoading.set(false);
+        this.barcodeScanStatus.set(`Found ${this.foodForm.name}. Review the values before adding.`);
         this.showToast(`Found ${product.serving_description || '100 g'}; review macros before adding`);
       },
       error: (error) => {
         if (token !== this.barcodeLookupToken) return;
         this.barcodeLoading.set(false);
         this.barcodeNotFound.set(error.status === 404);
+        this.barcodeScanStatus.set(error.status === 404 ? 'Barcode recognized, but no food was found. Enter values manually.' : 'Lookup unavailable. Try again or enter values manually.');
         this.showToast(error.status === 404 ? 'Barcode not found; enter food manually' : 'Lookup unavailable; enter food manually');
       },
     });
@@ -942,6 +1101,8 @@ export class AppComponent implements OnInit, OnDestroy {
       this.foodForm.protein = null;
       this.foodForm.carbs = null;
       this.foodForm.fat = null;
+      this.foodForm.sugar = null;
+      this.foodForm.added_sugar = null;
       this.labelOcrText = '';
       this.labelScanStatus.set('Reading label on your phone…');
       const ocr = await import('tesseract.js');
@@ -970,6 +1131,8 @@ export class AppComponent implements OnInit, OnDestroy {
         this.foodForm.protein = values.protein;
         this.foodForm.carbs = values.carbs;
         this.foodForm.fat = values.fat;
+        this.foodForm.sugar = values.sugar;
+        this.foodForm.added_sugar = values.addedSugar;
         this.labelScanStatus.set('Review the label photo and correct every field before logging.');
       } finally {
         if (this.labelWorker === worker) {
@@ -1044,7 +1207,12 @@ export class AppComponent implements OnInit, OnDestroy {
     let pending: PendingChange[] = [];
     try { pending = await this.offline.getPending(); } catch { /* Online-only fallback. */ }
     const today = structuredClone(this.serverToday);
+    today.nutrition = { ...today.nutrition, sugar: today.nutrition.sugar ?? 0,
+      added_sugar: today.nutrition.added_sugar ?? 0, sugar_unknown_count: today.nutrition.sugar_unknown_count ?? 0,
+      added_sugar_unknown_count: today.nutrition.added_sugar_unknown_count ?? 0 };
     const workouts = structuredClone(this.serverWorkouts);
+    const weights = structuredClone(this.serverWeightEntries);
+    const savedMeals = structuredClone(this.serverSavedMeals);
     const applyWorkout = (draft: WorkoutDraft) => {
       const workout = this.draftToWorkout(draft);
       const oldIndex = workouts.findIndex((item) => item.client_id === draft.client_id || item.id === draft.server_id);
@@ -1057,28 +1225,45 @@ export class AppComponent implements OnInit, OnDestroy {
       }
     };
     for (const item of pending) {
-      if (item.kind === 'food_log') {
+      if (item.kind === 'food_log' || item.kind === 'food_log_update') {
         const food = item.payload as { name: string; meal_type: string; calories: number; protein: number; carbohydrates: number; fat: number; logged_at: string;
+          sugar?: number | null; added_sugar?: number | null; server_id?: number;
           serving_quantity?: number; serving_description?: string; nutrition_source?: NutritionSource; label_photo_data_url?: string };
+        const oldIndex = today.food_logs.findIndex((log) => log.id === food.server_id || log.id === item.id || log.client_id === item.id);
+        const old = oldIndex >= 0 ? today.food_logs.splice(oldIndex, 1)[0] : null;
         if (new Date(food.logged_at).toDateString() === new Date(today.date + 'T12:00:00').toDateString()) {
           const quantity = Number(food.serving_quantity ?? 1);
           const calories = Math.round(Number(food.calories) * quantity);
           const protein = Number(food.protein) * quantity;
           const carbs = Number(food.carbohydrates) * quantity;
           const fat = Number(food.fat) * quantity;
-          today.food_logs.unshift({ id: item.id, name_snapshot: food.name, meal_type: food.meal_type,
+          today.food_logs.unshift({ id: food.server_id ?? old?.id ?? item.id, client_id: item.id,
+            name_snapshot: food.name, meal_type: food.meal_type,
             calories_snapshot: calories, protein_snapshot: protein, carbs_snapshot: carbs, fat_snapshot: fat,
+            sugar_snapshot: food.sugar == null ? null : Math.round(Number(food.sugar) * quantity * 100) / 100,
+            added_sugar_snapshot: food.added_sugar == null ? null : Math.round(Number(food.added_sugar) * quantity * 100) / 100,
+            per_serving: { calories: Number(food.calories), protein: Number(food.protein),
+              carbohydrates: Number(food.carbohydrates), fat: Number(food.fat),
+              sugar: food.sugar ?? null, added_sugar: food.added_sugar ?? null },
             serving_quantity: quantity, serving_description_snapshot: food.serving_description ?? '1 serving',
-            nutrition_source: food.nutrition_source ?? 'manual', label_photo_url: food.label_photo_data_url || null,
+            nutrition_source: food.nutrition_source ?? 'manual', label_photo_url: food.label_photo_data_url || old?.label_photo_url || null,
             logged_at: food.logged_at });
-          today.nutrition.calories = Number(today.nutrition.calories) + calories;
-          today.nutrition.protein = Number(today.nutrition.protein) + protein;
-          today.nutrition.carbs = Number(today.nutrition.carbs) + carbs;
-          today.nutrition.fat = Number(today.nutrition.fat) + fat;
         }
       } else if (item.kind === 'weight_entry') {
-        const weight = item.payload as { weight: number; unit: string };
-        today.latest_weight = { weight: String(weight.weight), unit: weight.unit };
+        const weight = item.payload as { weight: number; unit: 'lb' | 'kg'; recorded_at: string; notes: string };
+        const oldIndex = weights.findIndex((entry) => entry.id === item.id);
+        if (oldIndex >= 0) weights.splice(oldIndex, 1);
+        weights.unshift({ id: item.id, ...weight });
+      } else if (item.kind === 'saved_meal') {
+        const meal = item.payload as SavedMeal & { server_id?: number };
+        const oldIndex = savedMeals.findIndex((saved) => saved.id === meal.server_id || saved.id === item.id || saved.client_id === item.id);
+        if (oldIndex >= 0) savedMeals.splice(oldIndex, 1);
+        savedMeals.unshift({ ...meal, id: meal.server_id ?? item.id, client_id: item.id });
+      } else if (item.kind === 'saved_meal_delete') {
+        const deleted = item.payload as { server_id?: number; meal_client_id?: string };
+        const index = savedMeals.findIndex((meal) => meal.id === deleted.server_id || meal.id === deleted.meal_client_id ||
+          meal.client_id === deleted.meal_client_id);
+        if (index >= 0) savedMeals.splice(index, 1);
       } else if (item.kind === 'workout') {
         applyWorkout(item.payload as WorkoutDraft);
       } else if (item.kind === 'workout_delete') {
@@ -1092,6 +1277,18 @@ export class AppComponent implements OnInit, OnDestroy {
         this.profile.set(item.payload as ProfileSettings);
       }
     }
+    for (const field of ['calories', 'protein', 'carbs', 'fat', 'sugar', 'added_sugar'] as const) {
+      const snapshot = field === 'calories' ? 'calories_snapshot' : field === 'protein' ? 'protein_snapshot'
+        : field === 'carbs' ? 'carbs_snapshot' : field === 'fat' ? 'fat_snapshot'
+        : field === 'sugar' ? 'sugar_snapshot' : 'added_sugar_snapshot';
+      today.nutrition[field] = today.food_logs.reduce((sum, log) => sum + Number(log[snapshot] ?? 0), 0);
+    }
+    today.nutrition.sugar_unknown_count = today.food_logs.filter((log) => log.sugar_snapshot == null).length;
+    today.nutrition.added_sugar_unknown_count = today.food_logs.filter((log) => log.added_sugar_snapshot == null).length;
+    weights.sort((a, b) => Date.parse(b.recorded_at) - Date.parse(a.recorded_at));
+    this.weightEntries.set(weights);
+    this.savedMeals.set(savedMeals);
+    if (weights[0]) today.latest_weight = { weight: String(weights[0].weight), unit: weights[0].unit };
     if (this.currentDraft) {
       const serverMatch = workouts.find((item) => item.client_id === this.currentDraft?.client_id && typeof item.id === 'number');
       if (serverMatch) this.currentDraft.server_id = serverMatch.id as number;
@@ -1180,8 +1377,17 @@ export class AppComponent implements OnInit, OnDestroy {
 
   private loadSavedMeals(): void {
     this.http.get<SavedMeal[]>(`${this.api}/saved-meals/`).subscribe({ next: (data) => {
-      this.savedMeals.set(data);
+      this.serverSavedMeals = data;
       void this.offline.cache('savedMeals', data).catch(() => {});
+      void this.applyLocalState();
+    } });
+  }
+
+  private loadWeightEntries(): void {
+    this.http.get<WeightEntry[]>(`${this.api}/weight-entries/`).subscribe({ next: (data) => {
+      this.serverWeightEntries = data;
+      void this.offline.cache('weightEntries', data).catch(() => {});
+      void this.applyLocalState();
     } });
   }
 

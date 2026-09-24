@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, signal } from '@angular/core';
 import { firstValueFrom, Subject } from 'rxjs';
 
-export type SyncKind = 'food_log' | 'weight_entry' | 'workout' | 'workout_delete' | 'profile';
+export type SyncKind = 'food_log' | 'food_log_update' | 'saved_meal' | 'saved_meal_delete' | 'weight_entry' | 'workout' | 'workout_delete' | 'profile';
 
 export interface PendingChange {
   id: string;

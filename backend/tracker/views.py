@@ -92,6 +92,8 @@ class BarcodeLookupView(APIView):
             "protein": nutrients.get("proteins" + suffix),
             "carbohydrates": nutrients.get("carbohydrates" + suffix),
             "fat": nutrients.get("fat" + suffix),
+            "sugar": nutrients.get("sugars" + suffix),
+            "added_sugar": nutrients.get("added-sugars" + suffix),
             "source": "Open Food Facts",
         })
 
@@ -133,6 +135,8 @@ class TodayView(APIView):
             protein=Sum("protein_snapshot"),
             carbs=Sum("carbs_snapshot"),
             fat=Sum("fat_snapshot"),
+            sugar=Sum("sugar_snapshot"),
+            added_sugar=Sum("added_sugar_snapshot"),
         )
         workouts = Workout.objects.filter(started_at__range=(start, end)).prefetch_related(
             "workout_exercises__exercise", "workout_exercises__sets"
@@ -141,7 +145,9 @@ class TodayView(APIView):
         return Response(
             {
                 "date": today,
-                "nutrition": {key: value or 0 for key, value in totals.items()},
+                "nutrition": {**{key: value or 0 for key, value in totals.items()},
+                              "sugar_unknown_count": logs.filter(sugar_snapshot__isnull=True).count(),
+                              "added_sugar_unknown_count": logs.filter(added_sugar_snapshot__isnull=True).count()},
                 "food_logs": FoodLogSerializer(logs, many=True).data,
                 "workouts": WorkoutSerializer(workouts, many=True).data,
                 "latest_weight": BodyWeightEntrySerializer(weight).data if weight else None,

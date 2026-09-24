@@ -9,13 +9,13 @@ from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AppSettings, BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, Workout, WorkoutExercise
+from .models import AppSettings, BodyWeightEntry, Exercise, ExerciseSet, Food, FoodLog, SavedMeal, Workout, WorkoutExercise
 
 
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = AppSettings
-        fields = ("display_name", "calorie_goal", "protein_goal", "preferred_weight_unit")
+        fields = ("display_name", "calorie_goal", "protein_goal", "preferred_weight_unit", "target_weekly_gain")
 
     def validate_calorie_goal(self, value):
         if value < 1:
@@ -25,6 +25,11 @@ class ProfileSerializer(serializers.ModelSerializer):
     def validate_protein_goal(self, value):
         if value < 1:
             raise serializers.ValidationError("Protein goal must be at least 1")
+        return value
+
+    def validate_target_weekly_gain(self, value):
+        if value < 0 or value > 10:
+            raise serializers.ValidationError("Choose a target between 0 and 10 lb per week")
         return value
 
 
@@ -48,11 +53,18 @@ class FoodLogPayload(serializers.Serializer):
     protein = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"))
     carbohydrates = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"))
     fat = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"))
+    sugar = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"), allow_null=True, required=False, default=None)
+    added_sugar = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, max_value=Decimal("999.99"), allow_null=True, required=False, default=None)
     serving_quantity = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=Decimal("0.01"), max_value=Decimal("100"), required=False, default=Decimal("1"))
     serving_description = serializers.CharField(max_length=120, required=False, default="1 serving")
     nutrition_source = serializers.ChoiceField(choices=("manual", "barcode", "label", "saved_meal"), required=False, default="manual")
     label_photo_data_url = serializers.CharField(required=False, allow_blank=True, max_length=500000)
     logged_at = serializers.DateTimeField()
+
+    def validate(self, attrs):
+        if attrs.get("sugar") is not None and attrs.get("added_sugar") is not None and attrs["added_sugar"] > attrs["sugar"]:
+            raise serializers.ValidationError({"added_sugar": "Added sugar cannot exceed total sugar"})
+        return attrs
 
     def validate_label_photo_data_url(self, value):
         if not value:
@@ -68,6 +80,62 @@ class FoodLogPayload(serializers.Serializer):
             raise serializers.ValidationError("Label photo must be a JPEG under 350 KB")
         return image
 
+
+class FoodLogUpdatePayload(FoodLogPayload):
+    server_id = serializers.IntegerField(min_value=1)
+
+
+class SavedMealPayload(serializers.Serializer):
+    server_id = serializers.IntegerField(min_value=1, required=False)
+    name = serializers.CharField(max_length=160)
+    serving_description = serializers.CharField(max_length=120)
+    meal_type = serializers.ChoiceField(choices=FoodLog.MEALS)
+    calories = serializers.IntegerField(min_value=0)
+    protein = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0)
+    carbohydrates = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0)
+    fat = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0)
+    sugar = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, allow_null=True, required=False, default=None)
+    added_sugar = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=0, allow_null=True, required=False, default=None)
+    components = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+
+    def validate(self, attrs):
+        if attrs["sugar"] is not None and attrs["added_sugar"] is not None and attrs["added_sugar"] > attrs["sugar"]:
+            raise serializers.ValidationError({"added_sugar": "Added sugar cannot exceed total sugar"})
+        return attrs
+
+
+class SavedMealDeletePayload(serializers.Serializer):
+    server_id = serializers.IntegerField(min_value=1, required=False)
+    meal_client_id = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("A saved recipe ID is required")
+        return attrs
+
+
+def replace_food_log(log, payload):
+    """Replace a log's per-serving food and totals without losing its saved label photo."""
+    food = log.food if log.food and not log.food.logs.exclude(pk=log.pk).exists() else Food()
+    for field in ("name", "calories", "protein", "carbohydrates", "fat", "sugar", "added_sugar"):
+        setattr(food, field, payload[field])
+    food.serving_description = payload["serving_description"]
+    food.save()
+    quantity = payload["serving_quantity"]
+    log.food = food
+    log.logged_at = payload["logged_at"]
+    log.meal_type = payload["meal_type"]
+    log.name_snapshot = food.name
+    log.serving_quantity = quantity
+    log.serving_description_snapshot = food.serving_description
+    log.nutrition_source = payload["nutrition_source"]
+    log.calories_snapshot = int((Decimal(food.calories) * quantity).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    for field, source in (("protein_snapshot", food.protein), ("carbs_snapshot", food.carbohydrates),
+                          ("fat_snapshot", food.fat), ("sugar_snapshot", food.sugar),
+                          ("added_sugar_snapshot", food.added_sugar)):
+        setattr(log, field, (source * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if source is not None else None)
+    log.save()
+    return log
 
 class WeightPayload(serializers.Serializer):
     weight = serializers.DecimalField(max_digits=6, decimal_places=2, min_value=0)
@@ -112,7 +180,7 @@ class WorkoutDeletePayload(serializers.Serializer):
 
 
 class SyncEnvelope(serializers.Serializer):
-    kind = serializers.ChoiceField(choices=("food_log", "weight_entry", "workout", "workout_delete", "profile"))
+    kind = serializers.ChoiceField(choices=("food_log", "food_log_update", "saved_meal", "saved_meal_delete", "weight_entry", "workout", "workout_delete", "profile"))
     client_id = serializers.UUIDField()
     payload = serializers.JSONField()
 
@@ -128,6 +196,9 @@ class SyncView(APIView):
         raw_payload = envelope.validated_data["payload"]
         payload_class = {
             "food_log": FoodLogPayload,
+            "food_log_update": FoodLogUpdatePayload,
+            "saved_meal": SavedMealPayload,
+            "saved_meal_delete": SavedMealDeletePayload,
             "weight_entry": WeightPayload,
             "workout": WorkoutPayload,
             "workout_delete": WorkoutDeletePayload,
@@ -139,13 +210,15 @@ class SyncView(APIView):
 
         with transaction.atomic():
             if kind == "food_log":
-                existing = FoodLog.objects.filter(client_id=client_id).first()
+                existing = FoodLog.objects.select_related("food").filter(client_id=client_id).first()
                 if existing:
+                    replace_food_log(existing, payload)
                     return Response({"id": existing.id, "duplicate": True})
                 quantity = payload["serving_quantity"]
                 food = Food.objects.create(
                     name=payload["name"], calories=payload["calories"], protein=payload["protein"],
                     carbohydrates=payload["carbohydrates"], fat=payload["fat"],
+                    sugar=payload["sugar"], added_sugar=payload["added_sugar"],
                     serving_description=payload["serving_description"],
                 )
                 log = FoodLog.objects.create(
@@ -159,8 +232,42 @@ class SyncView(APIView):
                     protein_snapshot=(food.protein * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                     carbs_snapshot=(food.carbohydrates * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                     fat_snapshot=(food.fat * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    sugar_snapshot=(food.sugar * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if food.sugar is not None else None,
+                    added_sugar_snapshot=(food.added_sugar * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if food.added_sugar is not None else None,
                 )
                 return Response({"id": log.id}, status=status.HTTP_201_CREATED)
+
+            if kind == "food_log_update":
+                log = FoodLog.objects.select_related("food").filter(pk=payload["server_id"]).first()
+                if log is None:
+                    return Response({"detail": "Food log not found"}, status=404)
+                # The payload is a complete replacement, so retrying after a lost response is safe.
+                replace_food_log(log, payload)
+                return Response({"id": log.id})
+
+            if kind == "saved_meal":
+                meal = SavedMeal.objects.filter(client_id=client_id).first()
+                if meal is None and payload.get("server_id"):
+                    meal = SavedMeal.objects.filter(pk=payload["server_id"]).first()
+                created = meal is None
+                if created:
+                    meal = SavedMeal(client_id=client_id)
+                elif meal.client_id is None:
+                    meal.client_id = client_id
+                for field in ("name", "serving_description", "meal_type", "calories", "protein",
+                              "carbohydrates", "fat", "sugar", "added_sugar", "components"):
+                    setattr(meal, field, payload[field])
+                meal.save()
+                return Response({"id": meal.id}, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+            if kind == "saved_meal_delete":
+                meals = SavedMeal.objects.all()
+                if payload.get("server_id"):
+                    meals = meals.filter(pk=payload["server_id"])
+                if payload.get("meal_client_id"):
+                    meals = meals.filter(client_id=payload["meal_client_id"])
+                count, _ = meals.delete()
+                return Response({"deleted": bool(count)})
 
             if kind == "weight_entry":
                 existing = BodyWeightEntry.objects.filter(client_id=client_id).first()

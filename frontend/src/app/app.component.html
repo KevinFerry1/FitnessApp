@@ -48,6 +48,7 @@
             <p>{{ today().latest_weight ? 'Latest check-in' : 'No check-in yet' }}</p>
           </article>
         </div>
+        <article class="sugar-summary"><div><small>Added sugar today</small><b>{{ today().nutrition.added_sugar | number:'1.0-1' }}g known</b></div><span>Total sugar {{ today().nutrition.sugar | number:'1.0-1' }}g known</span>@if (today().nutrition.added_sugar_unknown_count || today().nutrition.sugar_unknown_count) { <small>{{ today().nutrition.added_sugar_unknown_count }} missing added-sugar · {{ today().nutrition.sugar_unknown_count }} missing total-sugar data</small> }</article>
 
         <section class="section-block">
           <div class="section-heading"><div><p class="eyebrow">FAST & SIMPLE</p><h2>Quick add</h2></div></div>
@@ -76,19 +77,35 @@
     @if (activeTab() === 'food') {
       <section class="page-view">
         <article class="summary-strip"><div><small>Consumed today</small><strong>{{ today().nutrition.calories | number }} kcal</strong></div><div><small>Remaining</small><strong>{{ caloriesRemaining | number }} kcal</strong></div></article>
+        <article class="sugar-summary"><div><small>Added sugar</small><b>{{ today().nutrition.added_sugar | number:'1.0-1' }}g known</b></div><span>Total sugar {{ today().nutrition.sugar | number:'1.0-1' }}g known</span>@if (today().nutrition.added_sugar_unknown_count || today().nutrition.sugar_unknown_count) { <small>{{ today().nutrition.added_sugar_unknown_count }} missing added-sugar · {{ today().nutrition.sugar_unknown_count }} missing total-sugar data</small> }</article>
         <button class="primary wide" (click)="open('food')">＋ Add food</button>
         <div class="section-heading"><h2>Saved meals & recipes</h2><button (click)="open('savedMeal')">＋ New</button></div>
         @for (meal of savedMeals(); track meal.id) {
-          <article class="saved-meal-card"><div><h3>{{ meal.name }}</h3><p>{{ meal.serving_description }} · {{ meal.calories }} kcal · P {{ meal.protein }}g / C {{ meal.carbohydrates }}g / F {{ meal.fat }}g</p></div><div class="saved-meal-actions"><button class="secondary" (click)="editSavedMeal(meal)" [attr.aria-label]="'Edit ' + meal.name">Edit</button><button class="secondary" (click)="useSavedMeal(meal)" [attr.aria-label]="'Choose servings for ' + meal.name">Servings</button><button class="primary" (click)="logSavedMeal(meal)">＋ Log 1</button></div></article>
+          <article class="saved-meal-card"><div><h3>{{ meal.name }}</h3><p>{{ meal.serving_description }} · {{ meal.calories }} kcal · P {{ meal.protein }}g / C {{ meal.carbohydrates }}g / F {{ meal.fat }}g</p><p>Sugar {{ meal.sugar == null ? '—' : meal.sugar + 'g' }} · Added {{ meal.added_sugar == null ? '—' : meal.added_sugar + 'g' }}</p>@if (meal.components?.length) { <small>{{ meal.components.length }} saved ingredient{{ meal.components.length === 1 ? '' : 's' }}</small> }</div><div class="saved-meal-actions"><button class="secondary" (click)="editSavedMeal(meal)" [attr.aria-label]="'Edit ' + meal.name">Edit</button><button class="secondary" (click)="useSavedMeal(meal)" [attr.aria-label]="'Choose servings for ' + meal.name">Servings</button><button class="primary" (click)="logSavedMeal(meal)">＋ Log 1</button></div></article>
         } @empty {
           <p class="muted-note">Save meals you repeat, then log one serving with a tap—even if your connection drops.</p>
         }
-        <div class="section-heading"><h2>Today's food</h2></div>
+        <div class="section-heading"><h2>Today's food</h2>@if (today().food_logs.length) { <button (click)="recipeSelectionMode = !recipeSelectionMode; selectedRecipeLogIds.clear()">{{ recipeSelectionMode ? 'Cancel' : 'Make recipe' }}</button> }</div>
+        @if (recipeSelectionMode) { <p class="muted-note recipe-help">Select one or more foods you logged today. Their logged quantities become one reusable recipe; today's entries stay unchanged.</p> }
         @for (log of today().food_logs; track log.id) {
-          <button class="timeline-item timeline-button" (click)="openFoodLog(log)"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.serving_quantity ?? 1 }} × {{ log.serving_description_snapshot || 'serving' }} · {{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></button>
+          @if (recipeSelectionMode) {
+            <label class="timeline-item recipe-choice"><input type="checkbox" [checked]="selectedRecipeLogIds.has(log.id)" (change)="toggleRecipeLog(log.id)"><span><b>{{ log.name_snapshot }}</b><small>{{ log.serving_quantity }} × {{ log.serving_description_snapshot }} · {{ log.calories_snapshot }} kcal</small></span></label>
+          } @else {
+            <button class="timeline-item timeline-button" (click)="openFoodLog(log)"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.serving_quantity ?? 1 }} × {{ log.serving_description_snapshot || 'serving' }} · {{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></button>
+          }
         } @empty {
           <article class="empty-state compact"><h3>No food logged yet</h3><p>Your latest foods will be easy to reuse here.</p></article>
         }
+        @if (recipeSelectionMode) { <button class="primary wide" (click)="saveSelectedFoodAsMeal()" [disabled]="!selectedRecipeLogIds.size">Save {{ selectedRecipeLogIds.size }} food{{ selectedRecipeLogIds.size === 1 ? '' : 's' }} as recipe</button> }
+      </section>
+    }
+
+    @if (activeTab() === 'weight') {
+      <section class="page-view weight-page"><article class="weight-hero"><p class="eyebrow">MORNING CHECK-INS</p><h2>{{ today().latest_weight?.weight || '—' }} <small>{{ today().latest_weight?.unit || profile().preferred_weight_unit }}</small></h2><p>Target: +{{ profile().target_weekly_gain ?? 0.5 }} lb/week. <button (click)="open('profile')">Edit target</button></p><button class="primary" (click)="open('weight')">＋ Log this morning</button></article>
+        <div class="weight-stats"><article><small>Last 7 days · average</small><b>{{ weightTrend.recent == null ? '—' : (weightTrend.recent | number:'1.1-1') }}</b><span>lb</span></article><article><small>Prior 7 days · average</small><b>{{ weightTrend.previous == null ? '—' : (weightTrend.previous | number:'1.1-1') }}</b><span>lb</span></article></div>
+        <article class="trend-card"><small>Average change</small><h3>{{ weightTrend.change == null ? '—' : ((weightTrend.change >= 0 ? '+' : '') + (weightTrend.change | number:'1.2-2')) }} <span>lb/week</span></h3><p>{{ weightTrendStatus }}</p><small>Each weekly average needs at least three mornings. Compared with your chosen +{{ profile().target_weekly_gain ?? 0.5 }} lb/week target. Daily fluctuations are normal; this is a trend, not a prediction.</small></article>
+        <div class="section-heading"><h2>Weight history</h2></div>
+        @for (entry of weightEntries(); track entry.id) { <article class="weight-history-row"><div><b>{{ entry.recorded_at | date:'mediumDate' }}</b>@if (entry.notes) { <small>{{ entry.notes }}</small> }</div><strong>{{ entry.weight }} {{ entry.unit }}</strong></article> } @empty { <article class="empty-state compact"><h3>No weigh-ins yet</h3><p>Log morning weight to see your weekly trend.</p></article> }
       </section>
     }
 
@@ -200,8 +217,9 @@
     <button class="close-button" (click)="close()" aria-label="Close">×</button>
 
     @if (sheet === 'food') {
-      <p class="eyebrow">QUICK LOG</p><h2>Add food</h2><p class="sheet-subtitle">Scan a barcode or label, or enter per-serving macros yourself.</p>
+      <p class="eyebrow">{{ editingFoodLog ? 'EDIT FOOD' : 'QUICK LOG' }}</p><h2>{{ editingFoodLog ? 'Edit food entry' : 'Add food' }}</h2><p class="sheet-subtitle">{{ editingFoodLog ? 'Change servings or correct the per-serving values.' : 'Scan a barcode or label, or enter per-serving macros yourself.' }}</p>
       <div class="barcode-row"><input inputmode="numeric" pattern="[0-9]*" [(ngModel)]="barcode" placeholder="Barcode number" aria-label="Barcode number"><button class="secondary" (click)="lookupBarcode()" [disabled]="barcodeLoading()">{{ barcodeLoading() ? 'Looking up…' : 'Look up' }}</button></div><button class="scan-button" (click)="startScanner()">▣ Scan with camera</button>@if (lookupServing) { <p class="lookup-serving">Nutrition shown for {{ lookupServing }}</p> }<p class="source-note">Data from <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener noreferrer">Open Food Facts</a> can be incomplete. Check the label and serving size before adding.</p>
+      @if (barcodeScanStatus()) { <p class="label-status" role="status">{{ barcodeScanStatus() }}</p> }
       <div class="label-capture" [class.missing-barcode]="barcodeNotFound()"><b>{{ barcodeNotFound() ? 'Barcode not found? Scan the Nutrition Facts label' : 'No barcode? Scan the Nutrition Facts label' }}</b><p>The photo stays on your phone for text recognition. The first scan may take a few seconds. Review all numbers before logging.</p><label class="secondary label-picker">📷 Take or choose label photo<input type="file" accept="image/*" capture="environment" (change)="captureLabel($event)"></label></div>
       @if (labelPhotoDataUrl) { <div class="label-preview"><img [src]="labelPhotoDataUrl" alt="Captured Nutrition Facts label"><button class="danger-text" (click)="removeLabelPhoto()">Remove photo</button></div> }
       @if (labelScanStatus()) { <p class="label-status">{{ labelScanStatus() }}</p> }
@@ -210,11 +228,12 @@
       <label class="field"><span>Serving size on label</span><input [(ngModel)]="foodServingDescription" maxlength="120" placeholder="1 cup (240 ml)"></label>
       <div class="field-row"><label class="field"><span>Calories per serving</span><input type="number" inputmode="numeric" min="0" [(ngModel)]="foodForm.calories" placeholder="650"></label><label class="field"><span>Protein per serving (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="foodForm.protein" placeholder="40"></label></div>
       <div class="field-row"><label class="field"><span>Carbs (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.carbs" placeholder="60"></label><label class="field"><span>Fat (g)</span><input type="number" inputmode="decimal" [(ngModel)]="foodForm.fat" placeholder="18"></label></div>
+      <div class="field-row"><label class="field"><span>Total sugar per serving (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="foodForm.sugar" placeholder="Unknown"></label><label class="field"><span>Added sugar per serving (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="foodForm.added_sugar" placeholder="Unknown"></label></div>
       <label class="field"><span>How many servings did you use?</span><input type="number" inputmode="decimal" min="0.01" max="100" step="0.25" [(ngModel)]="foodServings"></label>
-      <div class="food-total-preview"><b>Total to log</b><span>{{ foodTotals.calories }} kcal · P {{ foodTotals.protein }}g / C {{ foodTotals.carbs }}g / F {{ foodTotals.fat }}g</span></div>
+      <div class="food-total-preview"><b>Total to log</b><span>{{ foodTotals.calories }} kcal · P {{ foodTotals.protein }}g / C {{ foodTotals.carbs }}g / F {{ foodTotals.fat }}g<br>Sugar {{ foodTotals.sugar == null ? 'unknown' : foodTotals.sugar + 'g' }} · Added {{ foodTotals.added_sugar == null ? 'unknown' : foodTotals.added_sugar + 'g' }}</span></div>
       <label class="field"><span>Meal</span><select [(ngModel)]="foodForm.meal_type"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select></label>
-      <button class="primary wide" (click)="addFood()" [disabled]="saving() || labelScanning() || !canAddFood">{{ saving() ? 'Saving…' : 'Add food' }}</button>
-      <button class="secondary wide" (click)="saveFoodAsMeal()" [disabled]="labelScanning() || !canAddFood">Save as reusable meal</button>
+      <button class="primary wide" (click)="addFood()" [disabled]="saving() || labelScanning() || !canAddFood">{{ saving() ? 'Saving…' : editingFoodLog ? 'Save changes' : 'Add food' }}</button>
+      @if (!editingFoodLog) { <button class="secondary wide" (click)="saveFoodAsMeal()" [disabled]="labelScanning() || !canAddFood">Save as reusable meal</button> }
     }
 
     @if (sheet === 'foodLog' && selectedFoodLog; as log) {
@@ -222,11 +241,15 @@
       @if (log.label_photo_url) { <a [href]="log.label_photo_url" target="_blank" rel="noopener noreferrer" class="photo-link"><img class="saved-label-photo" [src]="log.label_photo_url" alt="Saved Nutrition Facts label for this food"><span>Open full-size photo</span></a> }
       <p class="food-log-serving">{{ log.serving_quantity ?? 1 }} × {{ log.serving_description_snapshot || 'serving' }} · {{ (log.nutrition_source || 'manual') | titlecase }}</p>
       <div class="food-log-macros"><div><b>{{ log.calories_snapshot }}</b><span>kcal</span></div><div><b>{{ log.protein_snapshot }}</b><span>protein</span></div><div><b>{{ log.carbs_snapshot ?? 0 }}</b><span>carbs</span></div><div><b>{{ log.fat_snapshot ?? 0 }}</b><span>fat</span></div></div>
+      <div class="food-log-macros sugar-log-macros"><div><b>{{ log.sugar_snapshot == null ? '—' : log.sugar_snapshot + 'g' }}</b><span>total sugar</span></div><div><b>{{ log.added_sugar_snapshot == null ? '—' : log.added_sugar_snapshot + 'g' }}</b><span>added sugar</span></div></div>
+      <button class="primary wide" (click)="editFoodLog()">Edit food / servings</button>
     }
 
     @if (sheet === 'scanner') {
       <p class="eyebrow">BARCODE SCANNER</p><h2>Point at a food barcode</h2><p class="sheet-subtitle">Allow camera access when prompted. Scanning runs on this device.</p>
       <video id="barcode-video" class="scanner-video" autoplay muted playsinline></video>
+      <p class="label-status" role="status">{{ barcodeScanStatus() }}</p>
+      <label class="secondary wide label-picker">Use a barcode photo<input type="file" accept="image/*" capture="environment" (change)="captureBarcodeImage($event)"></label>
       <button class="secondary wide" (click)="cancelScanner()">Cancel scan</button>
     }
 
@@ -236,6 +259,8 @@
       <label class="field"><span>Serving</span><input [(ngModel)]="savedMealForm.serving_description" placeholder="1 bowl"></label>
       <div class="field-row"><label class="field"><span>Calories</span><input type="number" inputmode="numeric" min="0" [(ngModel)]="savedMealForm.calories"></label><label class="field"><span>Protein (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="savedMealForm.protein"></label></div>
       <div class="field-row"><label class="field"><span>Carbs (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="savedMealForm.carbohydrates"></label><label class="field"><span>Fat (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="savedMealForm.fat"></label></div>
+      <div class="field-row"><label class="field"><span>Total sugar (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="savedMealForm.sugar" placeholder="Unknown"></label><label class="field"><span>Added sugar (g)</span><input type="number" inputmode="decimal" min="0" [(ngModel)]="savedMealForm.added_sugar" placeholder="Unknown"></label></div>
+      @if (savedMealForm.components?.length) { <div class="recipe-ingredients"><b>From today's foods</b>@for (part of savedMealForm.components; track $index) { <small>{{ part.servings }} × {{ part.name }}</small> }</div> }
       <label class="field"><span>Default meal</span><select [(ngModel)]="savedMealForm.meal_type"><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select></label>
       <button class="primary wide" (click)="saveSavedMeal()" [disabled]="saving() || !savedMealForm.name.trim()">{{ saving() ? 'Saving…' : 'Save meal' }}</button>
       @if (savedMealForm.id) { <button class="danger-text wide" (click)="deleteSavedMeal(savedMealForm); close()">Delete saved meal</button> }
@@ -266,7 +291,8 @@
       <label class="field"><span>Name</span><input [(ngModel)]="profileForm.display_name" maxlength="80" placeholder="Your name"></label>
       <div class="field-row"><label class="field"><span>Daily calories</span><input type="number" inputmode="numeric" min="1" [(ngModel)]="profileForm.calorie_goal"></label><label class="field"><span>Protein goal (g)</span><input type="number" inputmode="numeric" min="1" [(ngModel)]="profileForm.protein_goal"></label></div>
       <label class="field"><span>Weight unit for new logs</span><select [(ngModel)]="profileForm.preferred_weight_unit"><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>
-      <button class="primary wide" (click)="saveProfile()" [disabled]="saving() || profileForm.calorie_goal < 1 || profileForm.protein_goal < 1">{{ saving() ? 'Saving…' : 'Save settings' }}</button>
+      <label class="field"><span>Target gain (lb per week)</span><input type="number" inputmode="decimal" min="0" max="10" step="0.1" [(ngModel)]="profileForm.target_weekly_gain"></label>
+      <button class="primary wide" (click)="saveProfile()" [disabled]="saving() || profileForm.calorie_goal < 1 || profileForm.protein_goal < 1 || profileForm.target_weekly_gain < 0 || profileForm.target_weekly_gain > 10">{{ saving() ? 'Saving…' : 'Save settings' }}</button>
     }
 
     @if (sheet === 'import') {
