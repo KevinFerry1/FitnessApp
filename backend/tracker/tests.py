@@ -3,6 +3,8 @@ from rest_framework.test import APIClient
 from unittest.mock import patch
 from io import BytesIO
 import base64
+from django.core.management import call_command
+from io import StringIO
 
 from .importer import parse_exercise_line, parse_notes
 from .models import AppSettings, BodyWeightEntry, ExerciseSet, FoodLog, SavedMeal, Workout
@@ -71,6 +73,31 @@ class NotesImportApiTests(TestCase):
         committed = client.post("/api/imports/notes/", {**payload, "commit": True}, format="json")
         self.assertEqual(committed.status_code, 201)
         self.assertEqual(list(ExerciseSet.objects.values_list("reps", "weight")), [(7, 25), (7, 25)])
+
+    def test_legacy_weight_repair_is_dry_run_and_conservative(self):
+        client = APIClient()
+        payload = {"text": "9/21/26 upper B\nChest fly 2x7, 25lb (4)"}
+        # Recreate the old parser output without invoking the fixed parser.
+        client.post("/api/imports/notes/", {**payload, "commit": True}, format="json")
+        exercise = Workout.objects.get().workout_exercises.get()
+        entries = list(exercise.sets.all())
+        for entry, reps in zip(entries, (7, 25)):
+            entry.reps = reps
+            entry.weight = None
+            entry.save()
+        exercise.notes = "lb; 4"
+        exercise.save()
+        output = StringIO()
+        call_command("repair_notes_weights", stdout=output)
+        self.assertIn("Would repair 1 exercises", output.getvalue())
+        self.assertIsNone(ExerciseSet.objects.first().weight)
+        call_command("repair_notes_weights", "--apply", stdout=StringIO())
+        self.assertEqual(list(ExerciseSet.objects.values_list("reps", "weight")), [(7, 25), (7, 25)])
+        exercise.refresh_from_db()
+        self.assertEqual(exercise.notes, "4")
+        output = StringIO()
+        call_command("repair_notes_weights", stdout=output)
+        self.assertIn("Would repair 0 exercises", output.getvalue())
 
 
 class OfflineSyncTests(TestCase):

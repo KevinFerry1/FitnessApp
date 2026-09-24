@@ -1,9 +1,10 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { OfflineStore, PendingChange } from './offline-store';
 import { parseNutritionLabel } from './nutrition-label';
+import { exerciseFamily, slotsForWorkout, variationsForSlot } from './exercise-catalog';
 
 type Tab = 'today' | 'food' | 'workout' | 'progress' | 'profile';
 type Sheet = 'food' | 'foodLog' | 'scanner' | 'weight' | 'workout' | 'exercise' | 'import' | 'profile' | 'savedMeal' | null;
@@ -110,6 +111,26 @@ interface ParsedWorkout {
   }>;
 }
 
+type WorkoutUnit = 'lb' | 'kg' | 'plate';
+
+interface WorkoutRow {
+  key: string;
+  label: string;
+  options: string[];
+  name: string;
+  family: string;
+  exercise?: WorkoutExercise;
+}
+
+interface WorkoutEntry {
+  name: string;
+  weight: number | null;
+  unit: WorkoutUnit;
+  reps: number | null;
+  notes: string;
+  showThree: boolean;
+}
+
 @Component({
   selector: 'app-root',
   imports: [CommonModule, FormsModule],
@@ -117,7 +138,7 @@ interface ParsedWorkout {
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './app.component.css',
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
   readonly api = '/api';
   readonly tabs: Array<{ id: Tab; label: string; icon: string }> = [
     { id: 'today', label: 'Today', icon: '⌂' },
@@ -131,6 +152,7 @@ export class AppComponent implements OnInit {
   activeSheet = signal<Sheet>(null);
   loading = signal(true);
   saving = signal(false);
+  clockNow = signal(Date.now());
   toast = signal('');
   today = signal<TodayResponse>({
     date: localDateString(),
@@ -159,7 +181,8 @@ export class AppComponent implements OnInit {
   private labelScanToken = 0;
   private labelWorker: { terminate(): Promise<unknown> } | null = null;
   weightForm: { weight: number | null; unit: 'lb' | 'kg'; notes: string } = { weight: null, unit: 'lb', notes: '' };
-  workoutName = 'Workout';
+  workoutName = 'Upper A';
+  customWorkoutName = '';
   exerciseName = '';
   setForm = { weight: null as number | null, reps: null as number | null };
   selectedExercise: WorkoutExercise | null = null;
@@ -167,6 +190,7 @@ export class AppComponent implements OnInit {
   historyDraft: WorkoutDraft | null = null;
   historyEdit = false;
   historyDate = '';
+  reviewImportsOnly = false;
   savedMealForm: SavedMeal = { id: 0, name: '', serving_description: '1 serving', meal_type: 'lunch', calories: 0, protein: 0, carbohydrates: 0, fat: 0 };
   barcode = '';
   lookupServing = '';
@@ -179,12 +203,20 @@ export class AppComponent implements OnInit {
   private currentDraft: WorkoutDraft | null = null;
   private serverToday: TodayResponse = structuredClone(this.today());
   private serverWorkouts: Workout[] = [];
+  private clockInterval?: number;
+  private entryWorkoutId = '';
+  private workoutEntries: Record<string, WorkoutEntry> = {};
 
   constructor(private readonly http: HttpClient, readonly offline: OfflineStore) {}
 
   ngOnInit(): void {
+    this.clockInterval = window.setInterval(() => this.clockNow.set(Date.now()), 1000);
     this.offline.synced.subscribe(() => this.refresh());
     void this.initialize();
+  }
+
+  ngOnDestroy(): void {
+    if (this.clockInterval !== undefined) window.clearInterval(this.clockInterval);
   }
 
   private async initialize(): Promise<void> {
@@ -359,7 +391,7 @@ export class AppComponent implements OnInit {
     this.saving.set(true);
     const draft: WorkoutDraft = {
       client_id: crypto.randomUUID(), revision: 0,
-      name: this.workoutName.trim() || 'Workout',
+      name: (this.workoutName === 'Custom' ? this.customWorkoutName : this.workoutName).trim() || 'Workout',
       started_at: new Date().toISOString(),
       completed_at: null,
       notes: '',
@@ -393,6 +425,180 @@ export class AppComponent implements OnInit {
       draft.exercises.pop();
       this.failAction('Could not save exercise on this device');
     }
+  }
+
+  workoutRows(workout: Workout): WorkoutRow[] {
+    const slots = slotsForWorkout(workout.name);
+    const previousNames = this.workouts().flatMap((day) => day.workout_exercises.map((item) => item.exercise.name));
+    const exercises = [...workout.workout_exercises].sort((left, right) => {
+      const leftTime = left.sets[0]?.performed_at ? Date.parse(left.sets[0].performed_at) : Infinity;
+      const rightTime = right.sets[0]?.performed_at ? Date.parse(right.sets[0].performed_at) : Infinity;
+      return leftTime - rightTime;
+    });
+    const usedFamilies = new Set(exercises.map((item) => exerciseFamily(item.exercise.name)));
+    const logged = exercises.map((exercise): WorkoutRow => {
+      const family = exerciseFamily(exercise.exercise.name);
+      const slot = slots.find((item) => item.id === family);
+      const options = slot ? variationsForSlot(slot, previousNames) : [exercise.exercise.name];
+      if (!options.some((name) => name.toLowerCase() === exercise.exercise.name.toLowerCase())) options.push(exercise.exercise.name);
+      return { key: `exercise:${exercise.id}`, label: slot?.label ?? 'Custom exercise',
+        options, name: exercise.exercise.name, family, exercise };
+    });
+    const planned = slots.filter((slot) => !usedFamilies.has(slot.id)).map((slot): WorkoutRow => {
+      const priorName = this.historyForFamily(slot.id, workout, 1)[0]?.exercise.exercise.name;
+      return { key: `slot:${slot.id}`, label: slot.label, options: variationsForSlot(slot, previousNames),
+        name: priorName ?? slot.options[0], family: slot.id };
+    });
+    return [...logged, ...planned];
+  }
+
+  recordedExercises(workout: Workout): WorkoutExercise[] {
+    return workout.workout_exercises.filter((exercise) => exercise.sets.length > 0);
+  }
+
+  needsImportReview(workout: Workout): boolean {
+    return workout.workout_exercises.some((exercise) =>
+      /^(?:lbs?|kg|plates?)\b/i.test(exercise.notes.trim()) &&
+      exercise.sets.some((set) => set.weight === null && (set.reps ?? 0) >= 20));
+  }
+
+  get importReviewCount(): number {
+    return this.workouts().filter((workout) => this.needsImportReview(workout)).length;
+  }
+
+  get visibleWorkoutHistory(): Workout[] {
+    return this.reviewImportsOnly && this.importReviewCount
+      ? this.workouts().filter((workout) => this.needsImportReview(workout)) : this.workouts();
+  }
+
+  entryFor(row: WorkoutRow): WorkoutEntry {
+    const workout = this.activeWorkout();
+    const workoutId = String(workout?.client_id ?? workout?.id ?? '');
+    if (workoutId !== this.entryWorkoutId) {
+      this.entryWorkoutId = workoutId;
+      this.workoutEntries = {};
+    }
+    if (this.workoutEntries[row.key]) return this.workoutEntries[row.key];
+    const priorUnit = workout ? this.historyForFamily(row.family, workout, 1)[0]?.exercise.sets.at(-1)?.weight_unit : undefined;
+    return this.workoutEntries[row.key] = {
+      name: row.name,
+      weight: row.exercise?.sets.at(-1)?.weight == null ? null : Number(row.exercise.sets.at(-1)!.weight),
+      unit: ((row.exercise?.sets.at(-1)?.weight_unit ?? priorUnit) as WorkoutUnit | undefined) ?? this.profile().preferred_weight_unit,
+      reps: null,
+      notes: row.exercise?.notes ?? '',
+      showThree: false,
+    };
+  }
+
+  historyForFamily(family: string, active: Workout, limit: number): Array<{ workout: Workout; exercise: WorkoutExercise }> {
+    return [...this.workouts()]
+      .filter((workout) => workout.id !== active.id && (!active.client_id || workout.client_id !== active.client_id) &&
+        new Date(workout.started_at) <= new Date(active.started_at))
+      .sort((left, right) => Date.parse(right.started_at) - Date.parse(left.started_at))
+      .flatMap((workout) => workout.workout_exercises
+        .filter((exercise) => exercise.sets.length > 0 && exerciseFamily(exercise.exercise.name) === family)
+        .map((exercise) => ({ workout, exercise })))
+      .slice(0, limit);
+  }
+
+  historyForRow(row: WorkoutRow): Array<{ workout: Workout; exercise: WorkoutExercise }> {
+    const active = this.activeWorkout();
+    if (!active) return [];
+    return this.historyForFamily(row.family, active, this.entryFor(row).showThree ? 3 : 1);
+  }
+
+  get lastSetTimer(): { label: string; value: string } {
+    const workout = this.activeWorkout();
+    if (!workout) return { label: 'Since last set', value: '00:00' };
+    const latestSet = workout.workout_exercises.flatMap((exercise) => exercise.sets)
+      .reduce((latest, set) => Math.max(latest, set.performed_at ? Date.parse(set.performed_at) || 0 : 0), 0);
+    const seconds = Math.max(0, Math.floor((this.clockNow() - (latestSet || Date.parse(workout.started_at))) / 1000));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds % 3600 / 60).toString().padStart(2, '0');
+    const remainder = (seconds % 60).toString().padStart(2, '0');
+    return { label: latestSet ? 'Since last set' : 'Workout running',
+      value: hours ? `${hours}:${minutes}:${remainder}` : `${minutes}:${remainder}` };
+  }
+
+  private draftExerciseIndex(draft: WorkoutDraft, row: WorkoutRow, originalIndex: number): number {
+    const byId = draft.exercises.findIndex((exercise) => exercise.client_id === String(row.exercise?.id));
+    return byId >= 0 ? byId : originalIndex;
+  }
+
+  async saveWorkoutRowSet(row: WorkoutRow): Promise<void> {
+    const entry = this.entryFor(row);
+    const reps = Number(entry.reps);
+    const weight = entry.weight === null ? null : Number(entry.weight);
+    if (!entry.name.trim() || entry.reps === null || !Number.isInteger(reps) || reps < 0 ||
+      (weight !== null && (!Number.isFinite(weight) || weight < 0))) {
+      this.showToast('Enter an exercise and valid weight and reps');
+      return;
+    }
+    const originalIndex = row.exercise ? this.activeWorkout()?.workout_exercises.findIndex((item) => item.id === row.exercise?.id) ?? -1 : -1;
+    const current = await this.ensureDraft();
+    if (!current) return;
+    const draft = structuredClone(current);
+    let index = row.exercise ? this.draftExerciseIndex(draft, row, originalIndex) : -1;
+    if (index < 0) {
+      draft.exercises.push({ client_id: crypto.randomUUID(), name: entry.name.trim(), notes: entry.notes.trim(), sets: [] });
+      index = draft.exercises.length - 1;
+    }
+    const exercise = draft.exercises[index];
+    exercise.name = entry.name.trim();
+    exercise.notes = entry.notes.trim();
+    const savedAt = new Date().toISOString();
+    exercise.sets.push({ set_number: exercise.sets.length + 1, weight, weight_unit: entry.unit,
+      reps, set_type: 'working', performed_at: savedAt });
+    draft.exercises.sort((left, right) => {
+      const leftTime = left.sets[0]?.performed_at ? Date.parse(left.sets[0].performed_at) : Infinity;
+      const rightTime = right.sets[0]?.performed_at ? Date.parse(right.sets[0].performed_at) : Infinity;
+      return leftTime - rightTime;
+    });
+    this.saving.set(true);
+    try {
+      await this.persistDraft(draft);
+      entry.reps = null;
+      this.clockNow.set(Date.now());
+      this.saving.set(false);
+      this.showToast('Set saved on device');
+    } catch { this.failAction('Could not save set on this device'); }
+  }
+
+  async saveWorkoutRowDetails(row: WorkoutRow): Promise<void> {
+    if (!row.exercise) return;
+    const entry = this.entryFor(row);
+    if (!entry.name.trim()) return;
+    const originalIndex = this.activeWorkout()?.workout_exercises.findIndex((item) => item.id === row.exercise?.id) ?? -1;
+    const current = await this.ensureDraft();
+    if (!current) return;
+    const draft = structuredClone(current);
+    const exercise = draft.exercises[this.draftExerciseIndex(draft, row, originalIndex)];
+    if (!exercise) return;
+    if (exercise.name === entry.name.trim() && exercise.notes === entry.notes.trim()) return;
+    exercise.name = entry.name.trim();
+    exercise.notes = entry.notes.trim();
+    this.saving.set(true);
+    try { await this.persistDraft(draft); this.saving.set(false); }
+    catch { this.failAction('Could not save exercise details'); }
+  }
+
+  async removeWorkoutRow(row: WorkoutRow): Promise<void> {
+    if (!row.exercise) return;
+    if (row.exercise.sets.length && !window.confirm(`Remove ${row.exercise.exercise.name} and all its sets from this workout?`)) return;
+    const originalIndex = this.activeWorkout()?.workout_exercises.findIndex((item) => item.id === row.exercise?.id) ?? -1;
+    const current = await this.ensureDraft();
+    if (!current) return;
+    const draft = structuredClone(current);
+    const index = this.draftExerciseIndex(draft, row, originalIndex);
+    if (index < 0) return;
+    draft.exercises.splice(index, 1);
+    this.saving.set(true);
+    try {
+      await this.persistDraft(draft);
+      delete this.workoutEntries[row.key];
+      this.saving.set(false);
+      this.showToast('Exercise removed from this workout');
+    } catch { this.failAction('Could not remove exercise'); }
   }
 
   selectExercise(exercise: WorkoutExercise): void {
@@ -429,8 +635,11 @@ export class AppComponent implements OnInit {
   }
 
   async finishWorkout(): Promise<void> {
-    const draft = await this.ensureDraft();
-    if (!draft) return;
+    const current = await this.ensureDraft();
+    if (!current) return;
+    const draft = structuredClone(current);
+    draft.exercises = draft.exercises.filter((exercise) => exercise.sets.length > 0);
+    if (!draft.exercises.length) { this.showToast('Log at least one set before finishing'); return; }
     this.saving.set(true);
     draft.completed_at = new Date().toISOString();
     try {
@@ -440,10 +649,7 @@ export class AppComponent implements OnInit {
       this.selectedExercise = null;
       await this.applyLocalState();
       this.finishAction('Workout saved on device');
-    } catch {
-      draft.completed_at = null;
-      this.failAction('Could not finish workout on this device');
-    }
+    } catch { this.failAction('Could not finish workout on this device'); }
   }
 
   async saveProfile(): Promise<void> {
@@ -599,15 +805,8 @@ export class AppComponent implements OnInit {
 
   get selectedExerciseHistory(): Array<{ workout: Workout; exercise: WorkoutExercise }> {
     const active = this.activeWorkout();
-    const name = this.selectedExercise?.exercise.name.trim().toLocaleLowerCase();
-    if (!active || !name) return [];
-    return this.workouts()
-      .filter((workout) => workout.id !== active.id && new Date(workout.started_at) <= new Date(active.started_at))
-      .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
-      .flatMap((workout) => workout.workout_exercises
-        .filter((exercise) => exercise.exercise.name.trim().toLocaleLowerCase() === name)
-        .map((exercise) => ({ workout, exercise })))
-      .slice(0, this.showThreeSessions ? 3 : 1);
+    if (!active || !this.selectedExercise) return [];
+    return this.historyForFamily(exerciseFamily(this.selectedExercise.exercise.name), active, this.showThreeSessions ? 3 : 1);
   }
 
   async logSavedMeal(meal: SavedMeal): Promise<void> {

@@ -67,7 +67,7 @@
             <button class="timeline-item timeline-button" (click)="openFoodLog(log)"><div class="item-icon">◒</div><div><small>{{ log.meal_type | titlecase }}</small><h3>{{ log.name_snapshot }}</h3><p>{{ log.serving_quantity ?? 1 }} × {{ log.serving_description_snapshot || 'serving' }} · {{ log.protein_snapshot }}g protein</p></div><b>{{ log.calories_snapshot }} <small>kcal</small></b></button>
           }
           @for (workout of today().workouts; track workout.id) {
-            <article class="timeline-item"><div class="item-icon purple">◇</div><div><small>Workout</small><h3>{{ workout.name }}</h3><p>{{ workout.workout_exercises.length }} exercises</p></div><b>{{ workout.completed_at ? 'Done' : 'Active' }}</b></article>
+            <article class="timeline-item"><div class="item-icon purple">◇</div><div><small>Workout</small><h3>{{ workout.name }}</h3><p>{{ recordedExercises(workout).length }} exercises</p></div><b>{{ workout.completed_at ? 'Done' : 'Active' }}</b></article>
           }
         </section>
       </section>
@@ -95,32 +95,30 @@
     @if (activeTab() === 'workout') {
       <section class="page-view workout-view">
         @if (activeWorkout(); as workout) {
-          <article class="active-workout-head"><div><p class="eyebrow">ACTIVE WORKOUT</p><h2>{{ workout.name }}</h2><p>Started {{ workout.started_at | date:'shortTime' }}</p></div><span class="live-pill"><i></i> LIVE</span></article>
-          @for (exercise of workout.workout_exercises; track exercise.id) {
-            <article class="exercise-card" [class.selected]="selectedExercise?.id === exercise.id" (click)="selectExercise(exercise)">
-              <div class="exercise-title"><div><h3>{{ exercise.exercise.name }}</h3><p>{{ exercise.sets.length }} set{{ exercise.sets.length === 1 ? '' : 's' }}</p></div><span>›</span></div>
-              <div class="set-chips">@for (set of exercise.sets; track set.id) { <span>{{ set.weight || '—' }} {{ set.weight_unit }} × {{ set.reps }}</span> }</div>
-              @if (selectedExercise?.id === exercise.id) {
-                <div class="exercise-lookback" (click)="$event.stopPropagation()">
-                  <div class="section-heading"><h4>{{ showThreeSessions ? 'Last 3 times' : 'Last time' }}</h4>@if (selectedExerciseHistory.length > 1 || !showThreeSessions && selectedExerciseHistory.length) { <button (click)="showThreeSessions = !showThreeSessions">{{ showThreeSessions ? 'Show latest' : 'Show last 3' }}</button> }</div>
-                  @for (past of selectedExerciseHistory; track past.workout.id) {
-                    <div class="past-session"><b>{{ past.workout.started_at | date:'mediumDate' }} · {{ past.workout.name }}</b>
-                      @if (past.workout.notes) { <p>Workout note: {{ past.workout.notes }}</p> }
-                      @for (set of past.exercise.sets; track set.id) { <p>Set {{ set.set_number }}: {{ set.weight ?? '—' }} {{ set.weight_unit }} × {{ set.reps ?? '—' }} reps @if (set.set_type && set.set_type !== 'working') { · {{ set.set_type }} }</p> }
-                      @if (past.exercise.notes) { <p>Note: {{ past.exercise.notes }}</p> }
-                    </div>
-                  } @empty { <p>No earlier session for this exercise yet.</p> }
+          <article class="active-workout-head"><div><p class="eyebrow">ACTIVE WORKOUT</p><h2>{{ workout.name }}</h2><p>Started {{ workout.started_at | date:'shortTime' }}</p></div><div class="workout-timer"><span>{{ lastSetTimer.label }}</span><strong>{{ lastSetTimer.value }}</strong></div></article>
+          <p class="training-guide">Log any row in any order. Logged exercises move to the top; unused options stay out of your history.</p>
+          @for (row of workoutRows(workout); track row.key; let index = $index) {
+            @if (entryFor(row); as entry) {
+              <article class="training-row" [class.logged]="row.exercise?.sets?.length">
+                <div class="training-row-head"><span class="training-order">{{ row.exercise?.sets?.length ? '#' + (index + 1) : 'OPTIONAL' }}</span><span class="training-group">{{ row.label }}</span>@if (row.exercise) { <button class="training-remove" (click)="removeWorkoutRow(row)" [disabled]="saving()" [attr.aria-label]="'Remove ' + row.exercise.exercise.name">Remove</button> }</div>
+                <label class="training-select"><span>Exercise</span><select [(ngModel)]="entry.name" [attr.aria-label]="row.label + ' variation'">@for (option of row.options; track option) { <option [value]="option">{{ option }}</option> }</select></label>
+                @if (row.exercise?.sets?.length) {
+                  <div class="training-saved-sets">@for (set of row.exercise!.sets; track set.id) { <div><span>Set {{ set.set_number }}</span><b>{{ set.weight ?? '—' }} {{ set.weight_unit === 'plate' ? 'plates' : set.weight_unit }} × {{ set.reps ?? '—' }}</b></div> }</div>
+                }
+                <div class="training-previous">
+                  <div class="training-previous-head"><b>Previous</b>@if (historyForFamily(row.family, workout, 3).length > 1) { <button (click)="entry.showThree = !entry.showThree">{{ entry.showThree ? 'Show last only' : 'See last 3' }}</button> }</div>
+                  @for (past of historyForRow(row); track past.workout.id + '-' + past.exercise.id) {
+                    <div class="training-past"><b>{{ past.workout.started_at | date:'mediumDate' }} · {{ past.exercise.exercise.name }}</b><p>@for (set of past.exercise.sets; track set.id) { <span>{{ set.weight ?? '—' }} {{ set.weight_unit === 'plate' ? 'plates' : set.weight_unit }} × {{ set.reps ?? '—' }}@if (set.set_type && set.set_type !== 'working') { ({{ set.set_type }}) }@if (!$last) { · } </span> }</p>@if (past.exercise.notes) { <small>Exercise note: {{ past.exercise.notes }}</small> }@if (past.workout.notes) { <small>Workout note: {{ past.workout.notes }}</small> }</div>
+                  } @empty { <small>No earlier session in this category yet.</small> }
                 </div>
-                <div class="set-entry" (click)="$event.stopPropagation()">
-                  <label><span>Weight ({{ profile().preferred_weight_unit }})</span><input inputmode="decimal" type="number" [(ngModel)]="setForm.weight" placeholder="185"></label>
-                  <label><span>Reps</span><input inputmode="numeric" type="number" [(ngModel)]="setForm.reps" placeholder="8"></label>
-                  <button class="primary" (click)="addSet(exercise)" [disabled]="saving() || setForm.reps === null">Save set</button>
-                </div>
-              }
-            </article>
-          } @empty {
-            <article class="empty-state"><span>◇</span><h3>Add your first exercise</h3><p>Then each new set is only two numbers and one tap.</p></article>
-          }
+                <div class="training-inputs"><label><span>Weight</span><input type="number" inputmode="decimal" min="0" step="0.25" [(ngModel)]="entry.weight" placeholder="0"></label><label><span>Unit</span><select [(ngModel)]="entry.unit" aria-label="Weight unit"><option value="lb">lb</option><option value="kg">kg</option><option value="plate">plates</option></select></label><label><span>Reps</span><input type="number" inputmode="numeric" min="0" [(ngModel)]="entry.reps" placeholder="8"></label></div>
+                @if (entry.unit === 'plate') { <small class="plate-hint">2.25 plates means two 45s and a 25 in your notation.</small> }
+                <label class="training-notes"><span>Notes</span><input [(ngModel)]="entry.notes" placeholder="Seat, form, how it felt…"></label>
+                @if (row.exercise) { <button class="training-detail-save" (click)="saveWorkoutRowDetails(row)" [disabled]="saving()">Save name / note</button> }
+                <button class="primary training-save" (click)="saveWorkoutRowSet(row)" [disabled]="saving() || entry.reps === null">＋ Log set</button>
+              </article>
+            }
+          } @empty { <article class="empty-state compact"><h3>Add an exercise</h3><p>Choose one to start your custom workout.</p></article> }
           <button class="secondary wide" (click)="open('exercise')">＋ Add exercise</button>
           <button class="finish-button" (click)="finishWorkout()" [disabled]="saving()">Finish workout</button>
         } @else {
@@ -154,12 +152,13 @@
               <div class="history-actions"><button class="secondary" (click)="historyEdit = false">Cancel</button><button class="primary" (click)="saveHistory()" [disabled]="saving() || !editing.name.trim()">{{ saving() ? 'Saving…' : 'Save workout' }}</button></div>
             </div>
           } @else {
-            <article class="history-day-head"><p class="eyebrow">{{ workout.started_at | date:'fullDate' }}</p><h2>{{ workout.name }}</h2><p>{{ workout.completed_at ? 'Completed' : 'In progress' }} · {{ workout.workout_exercises.length }} exercise{{ workout.workout_exercises.length === 1 ? '' : 's' }}</p>@if (workout.notes) { <p>{{ workout.notes }}</p> }</article>
+            <article class="history-day-head"><p class="eyebrow">{{ workout.started_at | date:'fullDate' }}</p><h2>{{ workout.name }}</h2><p>{{ workout.completed_at ? 'Completed' : 'In progress' }} · {{ recordedExercises(workout).length }} exercise{{ recordedExercises(workout).length === 1 ? '' : 's' }}</p>@if (workout.notes) { <p>{{ workout.notes }}</p> }</article>
+            @if (needsImportReview(workout)) { <p class="import-review-warning">Some imported sets on this day may have a weight recorded as reps. Compare them with your original Notes text before editing.</p> }
             <div class="history-manage-actions" aria-label="Workout day actions">
               <button class="primary" (click)="editWorkout()">Edit this day</button>
               <button class="history-delete-button" (click)="deleteViewedWorkout()" [disabled]="saving()">Delete this day</button>
             </div>
-            @for (exercise of workout.workout_exercises; track exercise.id) {
+            @for (exercise of recordedExercises(workout); track exercise.id) {
               <article class="history-full-exercise"><h3>{{ exercise.exercise.name }}</h3>
                 @for (set of exercise.sets; track set.id) { <div class="history-set"><span>Set {{ set.set_number }}{{ set.set_type && set.set_type !== 'working' ? ' · ' + set.set_type : '' }}</span><b>{{ set.weight ?? '—' }} {{ set.weight_unit }} × {{ set.reps ?? '—' }} reps</b></div> }
                 @if (exercise.notes) { <p>Note: {{ exercise.notes }}</p> }
@@ -169,8 +168,9 @@
         } @else {
           <button class="import-callout" (click)="open('import')"><span>⇩</span><div><b>Import Apple Notes history</b><small>Paste your existing workout log</small></div><i>›</i></button>
           <div class="section-heading"><div><p class="eyebrow">YOUR TRAINING</p><h2>Workout history</h2></div></div>
-          @for (workout of workouts(); track workout.id) {
-            <button class="history-card history-button" (click)="viewWorkout(workout)"><div class="history-date"><b>{{ workout.started_at | date:'d' }}</b><small>{{ workout.started_at | date:'MMM' | uppercase }}</small></div><div><h3>{{ workout.name }}</h3><p>{{ workout.workout_exercises.length }} exercise{{ workout.workout_exercises.length === 1 ? '' : 's' }} · {{ workout.completed_at ? 'Completed' : 'In progress' }}</p></div><span>›</span></button>
+          @if (importReviewCount) { <button class="review-filter" [class.active]="reviewImportsOnly" (click)="reviewImportsOnly = !reviewImportsOnly">{{ reviewImportsOnly ? 'Show all workouts' : 'Review ' + importReviewCount + ' imported days' }}</button> }
+          @for (workout of visibleWorkoutHistory; track workout.id) {
+            <button class="history-card history-button" (click)="viewWorkout(workout)"><div class="history-date"><b>{{ workout.started_at | date:'d' }}</b><small>{{ workout.started_at | date:'MMM' | uppercase }}</small></div><div><h3>{{ workout.name }}</h3><p>{{ recordedExercises(workout).length }} exercise{{ recordedExercises(workout).length === 1 ? '' : 's' }} · {{ workout.completed_at ? 'Completed' : 'In progress' }}</p>@if (needsImportReview(workout)) { <small class="history-review-tag">Needs import review</small> }</div><span>›</span></button>
           } @empty { <article class="empty-state"><h3>No history yet</h3><p>Import your Notes log or finish your first workout.</p></article> }
         }
       </section>
@@ -249,8 +249,9 @@
     }
 
     @if (sheet === 'workout') {
-      <p class="eyebrow">NEW SESSION</p><h2>Start a workout</h2><p class="sheet-subtitle">Name it however you normally do.</p>
-      <label class="field"><span>Workout name</span><input autofocus [(ngModel)]="workoutName" placeholder="Upper A"></label>
+      <p class="eyebrow">NEW SESSION</p><h2>Start a workout</h2><p class="sheet-subtitle">Upper and Lower days show your exercise options. Skip any row you do not train today.</p>
+      <label class="field"><span>Workout day</span><select [(ngModel)]="workoutName"><option>Upper A</option><option>Upper B</option><option>Lower A</option><option>Lower B</option><option>Custom</option></select></label>
+      @if (workoutName === 'Custom') { <label class="field"><span>Custom workout name</span><input [(ngModel)]="customWorkoutName" placeholder="Workout name"></label> }
       <button class="primary wide" (click)="startWorkout()" [disabled]="saving()">{{ saving() ? 'Starting…' : 'Start workout' }}</button>
     }
 

@@ -3,3 +3,42 @@ html { min-height: 100%; background: #f5f7f5; }
 body { min-height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
 button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 input, textarea, select { font-size: 16px; }
+
+/* Phone-first workout log: every field stays within the viewport width. */
+.workout-timer { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; white-space: nowrap; }
+.workout-timer span { color: #b6e3c7; font-size: .65rem; font-weight: 700; }
+.workout-timer strong { font-variant-numeric: tabular-nums; font-size: 1.55rem; letter-spacing: -.04em; }
+.training-guide { margin: -5px 3px 15px; color: #61746a; font-size: .75rem; line-height: 1.5; }
+.training-row { margin: 10px 0; padding: 16px; border: 1px solid #dfe8e2; border-radius: 19px; background: #fff; box-shadow: 0 5px 22px #17352608; }
+.training-row.logged { border-color: #a6d3b7; }
+.training-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+.training-order { flex: none; padding: 5px 7px; border-radius: 7px; background: #e9f5ee; color: #176b4a; font-size: .58rem; font-weight: 850; letter-spacing: .06em; }
+.training-group { flex: 1; min-width: 0; color: #53665b; font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.training-remove { border: 0; background: none; color: #a03e39; font-size: .68rem; font-weight: 800; }
+.training-select, .training-notes { display: block; }
+.training-select span, .training-notes span, .training-inputs label span { display: block; margin-bottom: 5px; color: #61746a; font-size: .64rem; font-weight: 800; }
+.training-select select, .training-notes input, .training-inputs input, .training-inputs select { width: 100%; min-width: 0; min-height: 47px; padding: 0 10px; border: 1px solid #d6e2da; border-radius: 11px; background: #fbfdfb; color: #15231f; }
+.training-select select { font-weight: 750; }
+.training-saved-sets { margin: 12px 0; overflow: hidden; border: 1px solid #e3eee6; border-radius: 10px; }
+.training-saved-sets div { display: flex; justify-content: space-between; gap: 9px; padding: 8px 10px; border-top: 1px solid #e3eee6; font-size: .72rem; }
+.training-saved-sets div:first-child { border-top: 0; }
+.training-saved-sets span { color: #667c6f; }
+.training-saved-sets b { text-align: right; }
+.training-previous { margin: 13px 0; padding: 11px 12px; border-radius: 12px; background: #f0f3f8; color: #435262; }
+.training-previous-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.training-previous-head b { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; }
+.training-previous-head button { border: 0; background: none; color: #425e9a; font-size: .69rem; font-weight: 800; }
+.training-past { padding: 7px 0; border-top: 1px solid #dce3ee; }
+.training-past b, .training-past small { display: block; font-size: .68rem; }
+.training-past p { margin: 5px 0 2px; font-size: .72rem; }
+.training-past small, .training-previous > small { color: #667589; }
+.training-inputs { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr) minmax(0, .8fr); gap: 7px; margin: 13px 0 10px; }
+.training-inputs input { font-variant-numeric: tabular-nums; }
+.training-notes { margin: 10px 0; }
+.training-detail-save { display: block; margin: 0 0 10px auto; border: 0; background: none; color: #176b4a; font-size: .68rem; font-weight: 800; }
+.training-save { width: 100%; margin-top: 6px; }
+.plate-hint { display: block; color: #667b6e; font-size: .65rem; line-height: 1.35; }
+.review-filter { width: 100%; min-height: 42px; margin: 0 0 12px; border: 1px solid #e5ca9b; border-radius: 11px; background: #fff8e9; color: #77521c; font-size: .73rem; font-weight: 800; }
+.review-filter.active { background: #e9f5ee; border-color: #b4d8c1; color: #176b4a; }
+.history-review-tag { display: inline-block; margin-top: 5px; color: #a05c1b; font-size: .62rem; font-weight: 800; }
+.import-review-warning { margin: 9px 0 14px; padding: 12px; border-radius: 11px; background: #fff8e9; color: #77521c; font-size: .72rem; line-height: 1.4; }

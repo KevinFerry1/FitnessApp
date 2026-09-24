@@ -36,7 +36,8 @@ describe('AppComponent', () => {
     app.activeTab.set('progress');
     app.viewedWorkout.set({ id: 1, name: 'Upper B', started_at: '2026-09-21T12:00:00Z',
       completed_at: '2026-09-21T13:00:00Z', workout_exercises: [{ id: 2,
-        exercise: { id: 3, name: 'Chest fly' }, notes: '', sets: [] }] });
+        exercise: { id: 3, name: 'Chest fly' }, notes: '', sets: [{ id: 4, set_number: 1,
+          weight: 25, weight_unit: 'lb', reps: 7 }] }] });
     fixture.detectChanges();
     const root: HTMLElement = fixture.nativeElement;
     const actions = root.querySelector('.history-manage-actions');
@@ -73,5 +74,64 @@ describe('AppComponent', () => {
     expect(preview).toBeTruthy();
     expect(preview.textContent).toContain('25 lb × 7 reps');
     expect(preview.textContent).toContain('Seat 4');
+  });
+
+  it('logs an optional lower-body row first, preserves plate units, and removes it offline', async () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    spyOn(app.offline, 'cache').and.resolveTo();
+    spyOn(app.offline, 'getPending').and.resolveTo([]);
+    spyOn(app.offline, 'enqueue').and.resolveTo('saved');
+    app.activeWorkout.set({ id: 'workout-1', client_id: 'workout-1', name: 'Lower A',
+      started_at: '2026-09-24T12:00:00Z', completed_at: null, workout_exercises: [] });
+    const calf = app.workoutRows(app.activeWorkout()!).find((row) => row.family === 'calf_raise')!;
+    const entry = app.entryFor(calf);
+    entry.weight = 2.25;
+    entry.unit = 'plate';
+    entry.reps = 8;
+    await app.saveWorkoutRowSet(calf);
+    const workout = app.activeWorkout()!;
+    expect(workout.workout_exercises.length).toBe(1);
+    expect(app.workoutRows(workout)[0].family).toBe('calf_raise');
+    expect(workout.workout_exercises[0].sets[0].weight_unit).toBe('plate');
+    expect(workout.workout_exercises[0].sets[0].weight).toBe(2.25);
+    expect(app.recordedExercises(workout).length).toBe(1);
+    spyOn(window, 'confirm').and.returnValue(true);
+    await app.removeWorkoutRow(app.workoutRows(workout)[0]);
+    expect(app.activeWorkout()!.workout_exercises.length).toBe(0);
+  });
+
+  it('times from the most recently logged set', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    app.activeWorkout.set({ id: 1, name: 'Upper B', started_at: '2026-09-24T12:00:00Z',
+      completed_at: null, workout_exercises: [{ id: 2, exercise: { id: 3, name: 'Chest fly' }, notes: '',
+        sets: [{ id: 4, set_number: 1, weight: 25, weight_unit: 'lb', reps: 7,
+          performed_at: '2026-09-24T12:10:00Z' }] }] });
+    app.clockNow.set(Date.parse('2026-09-24T12:11:23Z'));
+    expect(app.lastSetTimer).toEqual({ label: 'Since last set', value: '01:23' });
+  });
+
+  it('filters only ambiguous imported days for review', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    const workout = (id: number, notes: string, weight: number | null) => ({ id, name: 'Upper B',
+      started_at: '2026-09-21T12:00:00Z', completed_at: '2026-09-21T13:00:00Z',
+      workout_exercises: [{ id, exercise: { id, name: 'Chest fly' }, notes,
+        sets: [{ id, set_number: 1, weight, weight_unit: 'lb', reps: 25 }] }] });
+    app.workouts.set([workout(1, 'lb; seat 4', null), workout(2, 'seat 4', 25)]);
+    expect(app.importReviewCount).toBe(1);
+    app.reviewImportsOnly = true;
+    expect(app.visibleWorkoutHistory.map((day) => day.id)).toEqual([1]);
+  });
+
+  it('shows a similarly named historical exercise beneath a current option', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    app.activeWorkout.set({ id: 'current', client_id: 'current', name: 'Upper B',
+      started_at: '2026-09-24T12:00:00Z', completed_at: null, workout_exercises: [] });
+    app.workouts.set([{ id: 1, name: 'Upper A', started_at: '2026-09-17T12:00:00Z',
+      completed_at: '2026-09-17T13:00:00Z', workout_exercises: [{ id: 2,
+        exercise: { id: 3, name: 'Single arm lateral raise' }, notes: 'Good form',
+        sets: [{ id: 4, set_number: 1, weight: 10, weight_unit: 'lb', reps: 7 }] }] }]);
+    const row = app.workoutRows(app.activeWorkout()!).find((item) => item.family === 'shoulder')!;
+    expect(row.options).toContain('Single arm lateral raise');
+    expect(app.historyForRow(row)[0].exercise.exercise.name).toBe('Single arm lateral raise');
   });
 });

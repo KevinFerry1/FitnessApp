@@ -7,9 +7,11 @@ A mobile-first calorie, bodyweight, and gym-workout tracker. The MVP is an insta
 - Today dashboard with calories, protein, latest bodyweight, and today's activity
 - Fast custom-food logging with snapshotted nutrition history, barcode lookup, on-device Nutrition Facts photo OCR, fractional serving quantities, and saved meals/recipes
 - Bodyweight check-ins
-- Start/finish workouts, add exercises, and rapidly save weight/reps sets
+- Start/finish Upper A/B or Lower A/B workouts from optional exercise rows; log sets in any order and remove exercises
+- Live timer since the last logged set, per-set lb/kg/plate units, and notes beside the phone-friendly set entry
 - Workout history with full-day details, editing and deletion of workouts, exercises, and sets
 - Last exercise performance in the active workout, expandable to the previous three sessions
+- Similar historical exercise names appear under the same option (for example, lateral-raise variations); the original names remain intact
 - Apple Notes workout import with a review-before-save preview
 - Editable name, calorie goal, protein goal, and weight-unit preferences
 - Offline food, bodyweight, and workout draft logging with queued replay and a pending-sync indicator
@@ -69,6 +71,8 @@ Hip thrust 2x7,7 2.25 plates
 Single weights repeat across all sets; comma-separated weights map set-by-set; parenthetical machine settings are preserved as exercise notes. See [docs/NOTES_IMPORT.md](docs/NOTES_IMPORT.md).
 
 The note text is kept as an on-device draft until you confirm. Preview and import require a connection to the Pi. A confirmed import is retry-safe if its response is lost, but intentionally importing the same note again as a new import will duplicate those workouts.
+
+Upper and Lower workout options are based on the provided sheet. Every row is optional; a template row is saved only after its first logged set, and the completed exercise order follows the first-set timestamps. Empty rows are omitted from Progress. A weight entered as `2.25 plates` stays in that notation rather than being converted to pounds, because machines and bars differ.
 
 ## Offline behavior
 
