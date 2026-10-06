@@ -22,4 +22,21 @@ describe('exercise catalog', () => {
     expect(exerciseHistoryKey('Pec deck')).not.toBe(exerciseHistoryKey('Arsenal chest fly'));
     expect(exerciseHistoryKey('Lying leg curl')).not.toBe(exerciseHistoryKey('Seated leg curl'));
   });
+
+  it('groups full-body variations and saved machines into the provided optional rows', () => {
+    const slots = slotsForWorkout('Full Body A');
+    expect(slotsForWorkout('Full Body B')).toEqual(slots);
+    expect(slots.length).toBe(10);
+    expect(slotsForWorkout('Custom full body day')).toEqual([]);
+    expect(slotsForWorkout('Full Body')).toEqual([]);
+    expect(slotsForWorkout('Upper A').map((slot) => slot.id)).not.toContain('quads');
+    expect(slotsForWorkout('Lower B').map((slot) => slot.id)).not.toContain('chest');
+    const chest = slots.find((slot) => slot.id === 'chest')!;
+    expect(chest.options.length).toBe(6);
+    expect(variationsForSlot(chest, ['Arsenal incline press', 'Hammer strength bench press'])).toContain('Arsenal incline press');
+    expect(variationsForSlot(slots.find((slot) => slot.id === 'lats')!, ['Cable close grip row'])).toContain('Cable close grip row');
+    expect(variationsForSlot(slots.find((slot) => slot.id === 'hamstrings')!, ['Seated leg curl'])).toContain('Seated leg curl');
+    expect(variationsForSlot(chest, [], [{ name: 'New machine', muscle_group: 'chest' }])).toContain('New machine');
+    expect(variationsForSlot(chest, [], [{ name: 'New machine', muscle_group: 'quads' }])).not.toContain('New machine');
+  });
 });

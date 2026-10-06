@@ -8,10 +8,12 @@ A mobile-first calorie, bodyweight, and gym-workout tracker. The MVP is an insta
 - Food logging with editable entries/servings, barcode lookup (live camera, barcode photo, or typed number), on-device Nutrition Facts photo OCR, fractional servings, and reusable meals/recipes
 - Select one or several already-logged foods from today to save their combined quantities and macros as one recipe
 - Morning-weight page with check-in history, two seven-day averages, and a customizable weekly gain target (initially 0.5 lb/week)
-- Start/finish Upper A/B or Lower A/B workouts from optional exercise rows; log sets in any order and remove exercises
+- Start/finish Upper A/B, Lower A/B, or Full Body A/B workouts from optional exercise rows; log sets in any order and remove exercises
+- Add a new exercise from any workout exercise dropdown; saved options are available in future sessions and sync from offline storage to the Pi
 - Live timer since the last logged set, per-set lb/kg/plate units, and notes beside the phone-friendly set entry
 - Workout history with full-day details, editing and deletion of workouts, exercises, and sets
 - Last exercise performance in the active workout, expandable to the previous three sessions
+- Muscles tab with a front/back body map, Monday–Sunday week navigation, and live set totals, including unfinished offline workouts; 4–12 sets per muscle group is the chosen target
 - Similar historical exercise names appear under the same option (for example, lateral-raise variations); the original names remain intact
 - Apple Notes workout import with a review-before-save preview
 - Editable name, calorie goal, protein goal, and weight-unit preferences
@@ -73,9 +75,15 @@ Single weights repeat across all sets; comma-separated weights map set-by-set; p
 
 The note text is kept as an on-device draft until you confirm. Preview and import require a connection to the Pi. A confirmed import is retry-safe if its response is lost, but intentionally importing the same note again as a new import will duplicate those workouts.
 
-Upper and Lower workout options are based on the provided sheet. Every row is optional; a template row is saved only after its first logged set, and the completed exercise order follows the first-set timestamps. Empty rows are omitted from Progress. A weight entered as `2.25 plates` stays in that notation rather than being converted to pounds, because machines and bars differ.
+Upper, Lower, and Full Body workout options are based on the provided sheets. Full Body A and B share ten optional rows: chest, traps, lats, quads, hamstrings, abs, calves, biceps, triceps, and shoulders. Every row is optional; a template row is saved only after its first logged set, and the completed exercise order follows the first-set timestamps. Empty rows are omitted from Progress. A weight entered as `2.25 plates` stays in that notation rather than being converted to pounds, because machines and bars differ.
+
+Choose **Add new exercise…** in an exercise dropdown, type the name, and tap **Save option** to select it and remember it in that exercise group. Saving an option does not log a set. New options are queued offline and saved to the Pi's exercise catalog when connected, so they remain available after restarting the app and on other devices.
 
 ## Offline behavior
+
+The app checks for new versions when it opens, returns to the foreground, or reconnects. Once a new version is downloaded, tap **Update available** to activate it and reload. This keeps saved on-device entries and pending changes. If an older installed version does not offer the update, open `https://raspberrypi.tail9c05f9.ts.net:8443/update.html` on that device and tap **Update and open app**, then reopen the installed app. The recovery page updates the app shell without clearing IndexedDB or workout drafts.
+
+The **Muscles** page counts each logged set once for the exercise's primary muscle group. The arrows browse Monday–Sunday weeks in America/New_York; sets with timestamps count toward the week they were performed, while older imported sets without timestamps use their workout date. Amber is below 4 sets, green is 4–12 inclusive, and red is above 12. Tap the body or a row in the right-hand overview to replace that overview with the group's total, exercises, sessions, weights, and reps. New sets, edits, and deletions update this view from on-device state without waiting for sync. Exercise names that cannot be reliably classified appear under **Unassigned**; choosing their group saves that assignment for past and future weeks.
 
 After the first online load, the PWA shell and previously viewed dashboard/history can open offline. Food logs and edits, reusable-recipe saves/deletes, bodyweight, profile edits, workout drafts, and workout-history edits/deletions are saved to IndexedDB before network submission. A banner shows how many changes are waiting; tapping it retries. The app also retries while open, when the browser reports connectivity, and when brought back to the foreground. Keep the app installed on the same phone until the banner reaches zero—clearing browser/site data discards unsynced changes. A closed iPhone PWA cannot be relied on for background sync; reopen it when the Pi is reachable. Simultaneous edits of one workout or food log from multiple devices are not yet merged. Notes import and barcode lookup require a Pi connection. Label OCR runs on the phone; its model files are loaded from the Pi on first use and cached for later offline use. Previously saved label photos may need a Pi connection to reopen if the browser has not cached them.
 

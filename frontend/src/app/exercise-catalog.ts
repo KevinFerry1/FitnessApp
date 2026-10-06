@@ -2,6 +2,12 @@ export interface ExerciseSlot {
   id: string;
   label: string;
   options: string[];
+  families?: string[];
+}
+
+export interface SavedExerciseOption {
+  name: string;
+  muscle_group: string;
 }
 
 export const UPPER_SLOTS: ExerciseSlot[] = [
@@ -27,6 +33,19 @@ export const LOWER_SLOTS: ExerciseSlot[] = [
   { id: 'hamstring_extension', label: '45° hamstring extension', options: ['45 degree hamstring extension'] },
   { id: 'quad_compound', label: 'Quad compound', options: ['Leg press', 'Hack squat', 'Belt squat'] },
   { id: 'abs', label: 'Abs', options: ['Standing cable crunch', 'Decline sit ups'] },
+];
+
+export const FULL_BODY_SLOTS: ExerciseSlot[] = [
+  { id: 'chest', label: 'Chest', families: ['incline_press', 'chest_fly'], options: ['Hammer strength bench press', 'Arsenal incline chest press', 'DB incline press', 'Smith incline press', 'Pec deck', 'Arsenal chest fly'] },
+  { id: 'chest_supported_row', label: 'Traps / chest-supported row', options: ['Chest supported row'] },
+  { id: 'lats', label: 'Lats', families: ['lower_lat', 'upper_lat'], options: ['Lat pulldown', 'JPG', 'Pull-ups', 'Cable close grip row'] },
+  { id: 'quads', label: 'Quads', families: ['quad_compound', 'leg_extension'], options: ['Hack squat', 'Leg extension', 'Pendulum squat', 'Leg press'] },
+  { id: 'hamstrings', label: 'Hamstrings', families: ['hamstring_extension', 'leg_curl'], options: ['45 degree hamstring extension', 'Leg curl'] },
+  { id: 'abs', label: 'Abs', options: ['Standing cable crunch', 'Decline sit ups', 'Ab crunch machine'] },
+  { id: 'calf_raise', label: 'Calves', options: ['Standing calf raise'] },
+  { id: 'bicep', label: 'Bicep', options: ['Preacher curl', 'DB incline curl', 'Standing DB curl'] },
+  { id: 'tricep', label: 'Triceps', options: ['Long rope tricep pushdown', 'Handle cable tricep pushdown', 'Strap cable tricep pushdown', 'JM press', 'EZ bar press down'] },
+  { id: 'shoulder', label: 'Shoulder', options: ['DB shoulder press'] },
 ];
 
 function normalized(name: string): string {
@@ -55,6 +74,7 @@ export function exerciseHistoryKey(name: string): string {
 export function exerciseFamily(name: string): string {
   const value = normalized(name);
   if (/incline/.test(value) && /(press|bench)/.test(value)) return 'incline_press';
+  if (/bench press|chest press/.test(value)) return 'chest';
   if (/(chest|pec)/.test(value) && /(fly|deck)/.test(value)) return 'chest_fly';
   if (/chest supported row/.test(value)) return 'chest_supported_row';
   if (/(close grip|closegrip)/.test(value) && /row/.test(value)) return 'upper_lat';
@@ -76,12 +96,23 @@ export function exerciseFamily(name: string): string {
 }
 
 export function slotsForWorkout(name: string): ExerciseSlot[] {
+  if (/^full[\s-]*body\s+[ab]$/i.test(name.trim())) return FULL_BODY_SLOTS;
   if (/upper/i.test(name)) return UPPER_SLOTS;
   if (/lower|legs/i.test(name)) return LOWER_SLOTS;
   return [];
 }
 
-export function variationsForSlot(slot: ExerciseSlot, previousNames: string[]): string[] {
-  const names = [...slot.options, ...previousNames.filter((name) => exerciseFamily(name) === slot.id)];
+export function familyForExercise(name: string, savedOptions: SavedExerciseOption[] = []): string {
+  return savedOptions.find((option) => normalized(option.name) === normalized(name))?.muscle_group || exerciseFamily(name);
+}
+
+export function matchesSlot(slot: ExerciseSlot, name: string, savedOptions: SavedExerciseOption[] = []): boolean {
+  const family = familyForExercise(name, savedOptions);
+  return slot.options.some((option) => normalized(option) === normalized(name)) || slot.id === family || !!slot.families?.includes(family);
+}
+
+export function variationsForSlot(slot: ExerciseSlot, previousNames: string[], savedOptions: SavedExerciseOption[] = []): string[] {
+  const names = [...slot.options, ...previousNames.filter((name) => matchesSlot(slot, name, savedOptions)),
+    ...savedOptions.filter((option) => matchesSlot(slot, option.name, savedOptions)).map((option) => option.name)];
   return names.filter((name, index) => names.findIndex((candidate) => normalized(candidate) === normalized(name)) === index);
 }

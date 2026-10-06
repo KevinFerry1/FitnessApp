@@ -4,9 +4,11 @@ import { Component, OnInit, OnDestroy, signal, ChangeDetectionStrategy, NgZone }
 import { FormsModule } from '@angular/forms';
 import { OfflineStore, PendingChange } from './offline-store';
 import { parseNutritionLabel } from './nutrition-label';
-import { exerciseFamily, exerciseHistoryKey, slotsForWorkout, variationsForSlot } from './exercise-catalog';
+import { AppUpdates } from './app-updates';
+import { MuscleWeekComponent } from './muscle-week.component';
+import { exerciseFamily, exerciseHistoryKey, familyForExercise, matchesSlot, SavedExerciseOption, slotsForWorkout, variationsForSlot } from './exercise-catalog';
 
-type Tab = 'today' | 'food' | 'workout' | 'progress' | 'weight' | 'profile';
+type Tab = 'today' | 'food' | 'workout' | 'muscles' | 'progress' | 'weight' | 'profile';
 type Sheet = 'food' | 'foodLog' | 'scanner' | 'weight' | 'workout' | 'exercise' | 'import' | 'profile' | 'savedMeal' | null;
 type NutritionSource = 'manual' | 'barcode' | 'label' | 'saved_meal';
 type EntityId = number | string;
@@ -141,11 +143,13 @@ interface WorkoutEntry {
   reps: number | null;
   notes: string;
   showThree: boolean;
+  addingOption: boolean;
+  newName: string;
 }
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MuscleWeekComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './app.component.css',
@@ -156,6 +160,7 @@ export class AppComponent implements OnInit, OnDestroy {
     { id: 'today', label: 'Today', icon: '⌂' },
     { id: 'food', label: 'Food', icon: '◒' },
     { id: 'workout', label: 'Workout', icon: '◇' },
+    { id: 'muscles', label: 'Muscles', icon: '◉' },
     { id: 'progress', label: 'Progress', icon: '↗' },
     { id: 'weight', label: 'Weight', icon: '⚖' },
     { id: 'profile', label: 'Profile', icon: '○' },
@@ -176,6 +181,7 @@ export class AppComponent implements OnInit, OnDestroy {
     latest_weight: null,
   });
   workouts = signal<Workout[]>([]);
+  exerciseOptions = signal<SavedExerciseOption[]>([]);
   savedMeals = signal<SavedMeal[]>([]);
   weightEntries = signal<WeightEntry[]>([]);
   activeWorkout = signal<Workout | null>(null);
@@ -225,21 +231,24 @@ export class AppComponent implements OnInit, OnDestroy {
   private currentDraft: WorkoutDraft | null = null;
   private serverToday: TodayResponse = structuredClone(this.today());
   private serverWorkouts: Workout[] = [];
+  private serverExerciseOptions: SavedExerciseOption[] = [];
   private serverWeightEntries: WeightEntry[] = [];
   private serverSavedMeals: SavedMeal[] = [];
   private clockInterval?: number;
   private entryWorkoutId = '';
   private workoutEntries: Record<string, WorkoutEntry> = {};
 
-  constructor(private readonly http: HttpClient, readonly offline: OfflineStore, private readonly zone: NgZone) {}
+  constructor(private readonly http: HttpClient, readonly offline: OfflineStore, private readonly zone: NgZone, readonly appUpdates: AppUpdates) {}
 
   ngOnInit(): void {
+    this.appUpdates.start();
     this.clockInterval = window.setInterval(() => this.clockNow.set(Date.now()), 1000);
     this.offline.synced.subscribe(() => this.refresh());
     void this.initialize();
   }
 
   ngOnDestroy(): void {
+    this.appUpdates.stop();
     if (this.clockInterval !== undefined) window.clearInterval(this.clockInterval);
   }
 
@@ -248,6 +257,7 @@ export class AppComponent implements OnInit, OnDestroy {
       await this.offline.init();
       this.serverToday = await this.offline.getCached<TodayResponse>('today') ?? this.serverToday;
       this.serverWorkouts = await this.offline.getCached<Workout[]>('workouts') ?? [];
+      this.serverExerciseOptions = await this.offline.getCached<SavedExerciseOption[]>('exerciseOptions') ?? [];
       this.serverWeightEntries = await this.offline.getCached<WeightEntry[]>('weightEntries') ?? [];
       this.serverSavedMeals = await this.offline.getCached<SavedMeal[]>('savedMeals') ?? [];
       this.currentDraft = await this.offline.getCached<WorkoutDraft>('activeDraft');
@@ -275,6 +285,11 @@ export class AppComponent implements OnInit, OnDestroy {
       },
     });
     this.loadWorkouts();
+    this.http.get<SavedExerciseOption[]>(`${this.api}/exercises/`).subscribe({ next: (data) => {
+      this.serverExerciseOptions = data;
+      void this.offline.cache('exerciseOptions', data).catch(() => {});
+      void this.applyLocalState();
+    }, error: () => {} });
     this.loadSavedMeals();
     this.loadWeightEntries();
     this.http.get<ProfileSettings>(`${this.api}/profile/`).subscribe({ next: (data) => {
@@ -287,7 +302,17 @@ export class AppComponent implements OnInit, OnDestroy {
   setTab(tab: Tab): void {
     this.activeTab.set(tab);
     if (tab !== 'progress') { this.viewedWorkout.set(null); this.historyEdit = false; }
-    if (tab === 'workout' || tab === 'progress') this.loadWorkouts();
+    if (tab === 'workout' || tab === 'progress' || tab === 'muscles') this.loadWorkouts();
+  }
+
+  async assignWeeklyMuscle(option: SavedExerciseOption): Promise<void> {
+    this.saving.set(true);
+    try {
+      await this.offline.enqueue('exercise_option', { ...option, replace_group: true });
+      this.exerciseOptions.update((options) => [...options.filter((item) => item.name.trim().toLowerCase() !== option.name.trim().toLowerCase()), option]);
+      this.saving.set(false);
+      this.showToast('Muscle group saved for this exercise');
+    } catch { this.failAction('Could not save muscle group'); }
   }
 
   open(sheet: Sheet): void {
@@ -573,18 +598,20 @@ export class AppComponent implements OnInit, OnDestroy {
       const rightTime = right.sets[0]?.performed_at ? Date.parse(right.sets[0].performed_at) : Infinity;
       return leftTime - rightTime;
     });
-    const usedFamilies = new Set(exercises.map((item) => exerciseFamily(item.exercise.name)));
+    const savedOptions = this.exerciseOptions();
+    const usedFamilies = new Set(exercises.map((item) => slots.find((slot) => matchesSlot(slot, item.exercise.name, savedOptions))?.id
+      ?? familyForExercise(item.exercise.name, savedOptions)));
     const logged = exercises.map((exercise): WorkoutRow => {
-      const family = exerciseFamily(exercise.exercise.name);
-      const slot = slots.find((item) => item.id === family);
-      const options = slot ? variationsForSlot(slot, previousNames) : [exercise.exercise.name];
+      const slot = slots.find((item) => matchesSlot(item, exercise.exercise.name, savedOptions));
+      const family = slot?.id ?? familyForExercise(exercise.exercise.name, savedOptions);
+      const options = variationsForSlot(slot ?? { id: family, label: 'Custom exercise', options: [exercise.exercise.name] }, previousNames, savedOptions);
       if (!options.some((name) => name.toLowerCase() === exercise.exercise.name.toLowerCase())) options.push(exercise.exercise.name);
       return { key: `exercise:${exercise.id}`, label: slot?.label ?? 'Custom exercise',
         options, name: exercise.exercise.name, family, exercise };
     });
     const planned = slots.filter((slot) => !usedFamilies.has(slot.id)).map((slot): WorkoutRow => {
       const priorName = this.historyForFamily(slot.id, workout, 1)[0]?.exercise.exercise.name;
-      return { key: `slot:${slot.id}`, label: slot.label, options: variationsForSlot(slot, previousNames),
+      return { key: `slot:${slot.id}`, label: slot.label, options: variationsForSlot(slot, previousNames, savedOptions),
         name: priorName ?? slot.options[0], family: slot.id };
     });
     return [...logged, ...planned];
@@ -625,16 +652,55 @@ export class AppComponent implements OnInit, OnDestroy {
       reps: null,
       notes: row.exercise?.notes ?? '',
       showThree: false,
+      addingOption: false,
+      newName: '',
     };
   }
 
+  selectWorkoutOption(row: WorkoutRow, name: string): void {
+    const entry = this.entryFor(row);
+    entry.addingOption = name === '__new__';
+    if (!entry.addingOption) { entry.name = name; entry.showThree = false; }
+  }
+
+  async saveExerciseOption(row: WorkoutRow): Promise<void> {
+    const entry = this.entryFor(row);
+    const name = entry.newName.trim();
+    if (!name || name.length > 160) { this.showToast('Enter an exercise name up to 160 characters'); return; }
+    const existing = row.options.find((option) => exerciseHistoryKey(option) === exerciseHistoryKey(name));
+    if (existing) {
+      entry.name = existing;
+      entry.addingOption = false;
+      entry.newName = '';
+      entry.showThree = false;
+      return;
+    }
+    const slot = slotsForWorkout(this.activeWorkout()?.name ?? '').find((item) => item.id === row.family);
+    const detected = exerciseFamily(name);
+    const option: SavedExerciseOption = { name, muscle_group: slot && (detected === slot.id || slot.families?.includes(detected)) ? detected : row.family };
+    this.saving.set(true);
+    try {
+      await this.offline.enqueue('exercise_option', option);
+      this.exerciseOptions.update((options) => [...options.filter((item) => item.name.toLowerCase() !== name.toLowerCase()), option]);
+      entry.name = name;
+      entry.addingOption = false;
+      entry.newName = '';
+      entry.showThree = false;
+      this.saving.set(false);
+      this.showToast('Exercise saved for future workouts');
+    } catch { this.failAction('Could not save exercise option'); }
+  }
+
   historyForFamily(family: string, active: Workout, limit: number): Array<{ workout: Workout; exercise: WorkoutExercise }> {
+    const slot = slotsForWorkout(active.name).find((item) => item.id === family);
     return [...this.workouts()]
       .filter((workout) => workout.id !== active.id && (!active.client_id || workout.client_id !== active.client_id) &&
         new Date(workout.started_at) <= new Date(active.started_at))
       .sort((left, right) => Date.parse(right.started_at) - Date.parse(left.started_at))
       .flatMap((workout) => workout.workout_exercises
-        .filter((exercise) => exercise.sets.length > 0 && exerciseFamily(exercise.exercise.name) === family)
+        .filter((exercise) => exercise.sets.length > 0 && (slot
+          ? matchesSlot(slot, exercise.exercise.name, this.exerciseOptions())
+          : familyForExercise(exercise.exercise.name, this.exerciseOptions()) === family))
         .map((exercise) => ({ workout, exercise })))
       .slice(0, limit);
   }
@@ -1211,6 +1277,14 @@ export class AppComponent implements OnInit, OnDestroy {
       added_sugar: today.nutrition.added_sugar ?? 0, sugar_unknown_count: today.nutrition.sugar_unknown_count ?? 0,
       added_sugar_unknown_count: today.nutrition.added_sugar_unknown_count ?? 0 };
     const workouts = structuredClone(this.serverWorkouts);
+    const exerciseOptions = structuredClone(this.serverExerciseOptions);
+    for (const change of pending.filter((item) => item.kind === 'exercise_option')) {
+      const option = change.payload as SavedExerciseOption & { replace_group?: boolean };
+      const index = exerciseOptions.findIndex((item) => item.name.toLowerCase() === option.name.toLowerCase());
+      if (index < 0) exerciseOptions.push(option);
+      else if (!exerciseOptions[index].muscle_group || option.replace_group) exerciseOptions[index] = option;
+    }
+    this.exerciseOptions.set(exerciseOptions);
     const weights = structuredClone(this.serverWeightEntries);
     const savedMeals = structuredClone(this.serverSavedMeals);
     const applyWorkout = (draft: WorkoutDraft) => {

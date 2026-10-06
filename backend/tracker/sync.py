@@ -153,6 +153,12 @@ class SetPayload(serializers.Serializer):
     performed_at = serializers.DateTimeField()
 
 
+class ExerciseOptionPayload(serializers.Serializer):
+    name = serializers.CharField(max_length=160)
+    muscle_group = serializers.CharField(max_length=80, allow_blank=True)
+    replace_group = serializers.BooleanField(required=False, default=False)
+
+
 class ExercisePayload(serializers.Serializer):
     name = serializers.CharField(max_length=160)
     notes = serializers.CharField(allow_blank=True, required=False)
@@ -180,7 +186,7 @@ class WorkoutDeletePayload(serializers.Serializer):
 
 
 class SyncEnvelope(serializers.Serializer):
-    kind = serializers.ChoiceField(choices=("food_log", "food_log_update", "saved_meal", "saved_meal_delete", "weight_entry", "workout", "workout_delete", "profile"))
+    kind = serializers.ChoiceField(choices=("food_log", "food_log_update", "saved_meal", "saved_meal_delete", "weight_entry", "workout", "workout_delete", "profile", "exercise_option"))
     client_id = serializers.UUIDField()
     payload = serializers.JSONField()
 
@@ -195,6 +201,7 @@ class SyncView(APIView):
         client_id = envelope.validated_data["client_id"]
         raw_payload = envelope.validated_data["payload"]
         payload_class = {
+            "exercise_option": ExerciseOptionPayload,
             "food_log": FoodLogPayload,
             "food_log_update": FoodLogUpdatePayload,
             "saved_meal": SavedMealPayload,
@@ -209,6 +216,17 @@ class SyncView(APIView):
         payload = payload_serializer.validated_data
 
         with transaction.atomic():
+            if kind == "exercise_option":
+                replace_group = payload.pop("replace_group")
+                exercise = Exercise.objects.filter(owner=None, name__iexact=payload["name"]).first()
+                created = exercise is None
+                if created:
+                    exercise = Exercise.objects.create(**payload)
+                elif not exercise.muscle_group or replace_group:
+                    exercise.muscle_group = payload["muscle_group"]
+                    exercise.save(update_fields=["muscle_group", "updated_at"])
+                return Response({"id": exercise.id}, status=201 if created else 200)
+
             if kind == "food_log":
                 existing = FoodLog.objects.select_related("food").filter(client_id=client_id).first()
                 if existing:

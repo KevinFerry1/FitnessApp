@@ -1,0 +1,95 @@
+:host { display: block; color: #15231f; }
+:host([hidden]) { display: none; }
+* { box-sizing: border-box; }
+button, select { font: inherit; }
+button { color: inherit; }
+.muscle-page { padding: 2px 16px 24px; max-width: 950px; margin: auto; }
+.week-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 12px; border: 1px solid #e2e9e4; border-radius: 18px; background: white; }
+.week-nav div { text-align: center; }
+.week-nav p { margin: 0 0 4px; color: #176b4a; font-size: .61rem; font-weight: 800; letter-spacing: .12em; }
+.week-nav h2 { margin: 0; font-size: clamp(.83rem, 2.2vw, 1.2rem); letter-spacing: -.025em; }
+.week-nav span { display: block; margin-top: 4px; color: #72807b; font-size: .63rem; }
+.week-arrow { width: 44px; height: 44px; flex: none; border: 1px solid #e2e9e4; border-radius: 12px; background: #f5f8f6; font-size: 1.7rem; }
+.week-arrow:disabled { opacity: .3; cursor: default; }
+.current-week { display: block; margin: 10px auto 0; min-height: 36px; border: 0; background: none; color: #176b4a; font-size: .73rem; font-weight: 750; }
+.volume-summary { display: grid; grid-template-columns: 1fr 1.1fr 1.2fr; margin: 14px 0; padding: 16px 10px; border-radius: 18px; color: white; background: linear-gradient(120deg, #173f30, #29664d); }
+.volume-summary > div { text-align: center; border-right: 1px solid #ffffff26; }
+.volume-summary > div:last-child { border: 0; }
+.volume-summary b { display: block; font-size: 1.6rem; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.volume-summary b small { color: #b4d0bf; font-size: .9rem; font-weight: 500; }
+.volume-summary span { display: block; margin-top: 6px; color: #c8dfd2; font-size: .6rem; }
+.volume-legend { display: flex; justify-content: center; gap: 10px 18px; flex-wrap: wrap; color: #5c6e63; font-size: .63rem; }
+.volume-legend span { display: flex; align-items: center; gap: 5px; }
+.volume-legend i, .muscle-overview-row i { width: 8px; height: 8px; flex: none; border-radius: 50%; }
+i.below { background: #d9a846; } i.good { background: #419b72; } i.above { background: #ce6957; } i.unknown { background: #9a9caa; }
+.live-volume-note { display: flex; align-items: flex-start; justify-content: center; gap: 5px; margin: 12px 0 15px; color: #718079; font-size: .64rem; line-height: 1.45; }
+.live-dot { width: 5px; height: 5px; flex: none; margin-top: 4px; border-radius: 50%; background: #419b72; }
+.muscle-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; }
+.body-card, .muscle-sidebar { min-width: 0; border: 1px solid #e0e8e2; border-radius: 18px; background: white; }
+.body-card { position: sticky; top: 12px; padding: 12px 6px; background: radial-gradient(ellipse at 50% 40%, #fff, #f3f7f4); }
+.body-switch { display: flex; max-width: 160px; margin: 0 auto; padding: 3px; border-radius: 10px; background: #e9efeb; }
+.body-switch button { flex: 1; min-height: 34px; padding: 4px 8px; border: 0; border-radius: 8px; background: none; color: #718079; font-size: .68rem; font-weight: 750; }
+.body-switch button.active { color: #176b4a; background: white; box-shadow: 0 2px 5px #183e3010; }
+.muscle-body { display: block; width: 100%; max-width: 265px; margin: 10px auto 0; overflow: visible; }
+.body-shadow { fill: #d8e2da; opacity: .45; }
+.body-base { fill: #e4eae6; stroke: #bbc8bf; stroke-width: 1.25; stroke-linejoin: round; }
+.body-base .body-line { fill: none; stroke: #c4cec7; }
+.body-region { cursor: pointer; stroke-width: 1.4; stroke-linejoin: round; transition: fill .2s, stroke .2s; }
+.body-region .body-hit { fill: none; stroke: transparent; stroke-width: 10; pointer-events: stroke; }
+.body-region.below { fill: #efd092; stroke: #c4a05d; }
+.body-region.good { fill: #7cbd9d; stroke: #4d9573; }
+.body-region.above { fill: #e9a293; stroke: #b96e5e; }
+.body-region.selected, .body-region:hover, .body-region:focus-visible { stroke: #173f30; stroke-width: 3; filter: drop-shadow(0 1px 3px #173f3028); outline: none; }
+.body-instruction { margin: 4px 4px 0; color: #718079; text-align: center; font-size: .62rem; line-height: 1.45; }
+.unassigned-callout { display: block; width: 100%; padding: 10px 4px 0; border: 0; background: none; color: #786130; font-size: .62rem; font-weight: 700; line-height: 1.5; }
+.muscle-sidebar { padding: 12px 10px; }
+.overview-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+.overview-heading h3 { margin: 0; font-size: .83rem; }
+.overview-heading > span { color: #7c897f; font-size: .6rem; }
+.muscle-overview-row { display: flex; justify-content: space-between; align-items: center; gap: 3px; width: 100%; min-height: 43px; padding: 6px 0; border: 0; border-top: 1px solid #edf1ee; background: white; text-align: left; }
+.muscle-overview-row > span { display: flex; align-items: center; gap: 5px; font-size: .63rem; line-height: 1.25; }
+.muscle-overview-row > b { display: flex; align-items: center; gap: 5px; font-size: .82rem; font-variant-numeric: tabular-nums; }
+.muscle-overview-row b small { color: #96a298; font-size: .9rem; font-weight: 400; }
+.muscle-overview-row:hover { color: #176b4a; }
+.overview-help { margin: 10px 0 0; color: #7c897f; font-size: .6rem; line-height: 1.5; }
+.muscle-detail { overflow: auto; max-height: 720px; }
+.overview-back { padding: 0; min-height: 32px; border: 0; background: none; color: #176b4a; font-size: .64rem; font-weight: 750; }
+.detail-eyebrow { margin: 9px 0 6px; color: #7c897f; font-size: .58rem; line-height: 1.4; }
+.muscle-detail h3 { margin: 0; font-size: 1.1rem; letter-spacing: -.025em; }
+.detail-total { margin-top: 14px; padding: 14px 10px; border-radius: 13px; }
+.detail-total.below { background: #fff5df; color: #806029; } .detail-total.good { background: #e9f5ee; color: #176b4a; } .detail-total.above { background: #fff0eb; color: #a94f3f; }
+.detail-total b { display: block; font-size: 2rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.detail-total span { display: block; margin-top: 6px; font-size: .63rem; }
+.target-message { color: #718079; font-size: .62rem; line-height: 1.55; }
+.muscle-detail h4 { margin: 18px 0 10px; font-size: .76rem; }
+.volume-exercise { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid #e2e9e4; }
+.volume-exercise header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; }
+.volume-exercise h5 { margin: 0; font-size: .68rem; line-height: 1.4; }
+.volume-exercise header > b { font-size: .61rem; color: #176b4a; white-space: nowrap; }
+.volume-session { padding: 8px 0 3px; }
+.volume-session p { margin: 0 0 6px; color: #718079; font-size: .6rem; line-height: 1.45; }
+.volume-session em { display: inline-block; margin-top: 3px; padding: 2px 4px; border-radius: 4px; background: #e9f5ee; color: #176b4a; font-style: normal; font-weight: 750; }
+.volume-set-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.volume-set-list > span { padding: 6px; border-radius: 7px; background: #f3f6f4; font-size: .64rem; font-weight: 650; }
+.volume-set-list small { display: block; margin-bottom: 2px; color: #718079; font-size: .53rem; font-weight: 500; }
+.session-note { display: block; margin-top: 7px; color: #718079; font-size: .6rem; line-height: 1.4; }
+.assign-muscle { display: block; margin-top: 8px; }
+.assign-muscle span { display: block; margin-bottom: 4px; color: #718079; font-size: .59rem; }
+.assign-muscle select { width: 100%; min-height: 40px; border: 1px solid #d4ded7; border-radius: 8px; padding: 4px; background: white; font-size: .67rem; }
+.no-muscle-sets, .empty-volume { color: #718079; font-size: .7rem; line-height: 1.55; }
+.empty-volume { padding: 12px 4px; text-align: center; }
+@media (min-width: 600px) {
+  .muscle-page { padding: 2px 28px 28px; }
+  .muscle-layout { grid-template-columns: minmax(0, 1.3fr) minmax(260px, 1fr); gap: 18px; }
+  .body-card { padding: 18px 14px; }
+  .muscle-body { max-width: 270px; }
+  .muscle-sidebar { padding: 18px; }
+  .muscle-overview-row > span { gap: 8px; font-size: .76rem; }
+  .muscle-overview-row > b { font-size: .9rem; }
+  .muscle-detail h3 { font-size: 1.4rem; }
+  .volume-exercise h5 { font-size: .79rem; }
+  .volume-set-list > span { font-size: .73rem; }
+  .detail-eyebrow, .volume-session p, .target-message { font-size: .7rem; }
+  .overview-help, .body-instruction, .unassigned-callout { font-size: .68rem; }
+  .volume-summary span { font-size: .72rem; }
+}

@@ -1,6 +1,9 @@
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { AppComponent } from './app.component';
+import { PendingChange } from './offline-store';
+import { MuscleWeekComponent } from './muscle-week.component';
+import { By } from '@angular/platform-browser';
 
 describe('AppComponent', () => {
   beforeEach(async () => {
@@ -14,6 +17,64 @@ describe('AppComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
     expect(fixture.componentInstance.activeTab()).toBe('today');
   });
+
+  it('updates the Muscles tab immediately after logging and removing an offline set', async () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const app = fixture.componentInstance;
+    spyOn(app, 'ngOnInit').and.stub();
+    spyOn(app.offline, 'cache').and.resolveTo();
+    spyOn(app.offline, 'getPending').and.resolveTo([]);
+    spyOn(app.offline, 'enqueue').and.resolveTo('saved');
+    app.activeWorkout.set({ id: 'current', name: 'Full Body A', started_at: new Date().toISOString(), completed_at: null, workout_exercises: [] });
+    fixture.detectChanges();
+    const muscles = fixture.debugElement.query(By.directive(MuscleWeekComponent)).componentInstance as MuscleWeekComponent;
+    expect(muscles.totalSets()).toBe(0);
+    const row = app.workoutRows(app.activeWorkout()!).find((item) => item.family === 'chest')!;
+    app.entryFor(row).weight = 1;
+    app.entryFor(row).unit = 'plate';
+    app.entryFor(row).reps = 9;
+    await app.saveWorkoutRowSet(row);
+    app.setTab('muscles');
+    fixture.detectChanges();
+    expect(muscles.totalSets()).toBe(1);
+    expect(muscles.groupFor('chest').count).toBe(1);
+    expect(muscles.groupFor('chest').exercises[0].sessions[0].inProgress).toBeTrue();
+    spyOn(window, 'confirm').and.returnValue(true);
+    await app.removeWorkoutRow(app.workoutRows(app.activeWorkout()!)[0]);
+    fixture.detectChanges();
+    expect(muscles.totalSets()).toBe(0);
+  });
+
+  it('includes both Full Body sessions in the workout day dropdown', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    spyOn(fixture.componentInstance, 'ngOnInit').and.stub();
+    fixture.componentInstance.activeSheet.set('workout');
+    fixture.detectChanges();
+    const select: HTMLSelectElement = fixture.nativeElement.querySelector('.sheet select');
+    expect([...select.options].map((option) => option.text)).toEqual(['Upper A', 'Upper B', 'Lower A', 'Lower B', 'Full Body A', 'Full Body B', 'Custom']);
+  });
+
+  for (const name of ['Full Body A', 'Full Body B']) {
+    it(`shows the ten optional full-body rows after starting ${name}`, async () => {
+      const fixture = TestBed.createComponent(AppComponent);
+      const app = fixture.componentInstance;
+      spyOn(app, 'ngOnInit').and.stub();
+      spyOn(app.offline, 'cache').and.resolveTo();
+      spyOn(app.offline, 'getPending').and.resolveTo([]);
+      spyOn(app.offline, 'enqueue').and.resolveTo('saved');
+      app.workoutName = name;
+      await app.startWorkout();
+      fixture.detectChanges();
+      const root: HTMLElement = fixture.nativeElement;
+      expect(root.querySelector('.active-workout-head h2')?.textContent).toBe(name);
+      expect([...root.querySelectorAll('.training-group')].map((group) => group.textContent)).toEqual([
+        'Chest', 'Traps / chest-supported row', 'Lats', 'Quads', 'Hamstrings', 'Abs', 'Calves', 'Bicep', 'Triceps', 'Shoulder',
+      ]);
+      expect(root.querySelectorAll('.training-order').length).toBe(10);
+      expect([...root.querySelectorAll('.training-order')].every((row) => row.textContent === 'OPTIONAL')).toBeTrue();
+      expect(app.activeWorkout()!.workout_exercises).toEqual([]);
+    });
+  }
 
   it('shows the latest matching exercise and can expand to three sessions', () => {
     const app = TestBed.createComponent(AppComponent).componentInstance;
@@ -109,6 +170,57 @@ describe('AppComponent', () => {
           performed_at: '2026-09-24T12:10:00Z' }] }] });
     app.clockNow.set(Date.parse('2026-09-24T12:11:23Z'));
     expect(app.lastSetTimer).toEqual({ label: 'Since last set', value: '01:23' });
+  });
+
+  it('saves a typed full-body machine for future dropdowns without logging an exercise', async () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    const enqueue = spyOn(app.offline, 'enqueue').and.resolveTo('saved');
+    app.activeWorkout.set({ id: 'current', name: 'Full Body A', started_at: '2026-10-06T12:00:00Z', completed_at: null, workout_exercises: [] });
+    const chest = app.workoutRows(app.activeWorkout()!).find((row) => row.family === 'chest')!;
+    app.selectWorkoutOption(chest, '__new__');
+    app.entryFor(chest).newName = '  New chest machine  ';
+    await app.saveExerciseOption(chest);
+    expect(enqueue).toHaveBeenCalledWith('exercise_option', { name: 'New chest machine', muscle_group: 'chest' });
+    expect(app.entryFor(chest).name).toBe('New chest machine');
+    expect(app.activeWorkout()!.workout_exercises.length).toBe(0);
+    app.activeWorkout.set({ ...app.activeWorkout()!, id: 'next', name: 'Full Body B' });
+    expect(app.workoutRows(app.activeWorkout()!).find((row) => row.family === 'chest')!.options).toContain('New chest machine');
+  });
+
+  it('restores a saved machine from the server catalog and keeps it in its row when logged', () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    app.exerciseOptions.set([{ name: 'New row machine', muscle_group: 'chest_supported_row' }]);
+    app.activeWorkout.set({ id: 'current', name: 'Full Body B', started_at: '2026-10-06T12:00:00Z', completed_at: null,
+      workout_exercises: [{ id: 'row', exercise: { id: 'machine', name: 'New row machine' }, notes: '',
+        sets: [{ id: 'set', set_number: 1, weight: 60, weight_unit: 'lb', reps: 8 }] }] });
+    const rows = app.workoutRows(app.activeWorkout()!);
+    expect(rows.length).toBe(10);
+    expect(rows[0].family).toBe('chest_supported_row');
+    expect(rows[0].options).toContain('Chest supported row');
+  });
+
+  it('restores a queued option after restarting offline and finishes only logged full-body rows', async () => {
+    const app = TestBed.createComponent(AppComponent).componentInstance;
+    const pending: PendingChange[] = [{ id: 'option', kind: 'exercise_option', createdAt: 1,
+      payload: { name: 'New hamstring machine', muscle_group: 'hamstrings' } }];
+    spyOn(app.offline, 'cache').and.resolveTo();
+    spyOn(app.offline, 'enqueue').and.callFake(async (kind, payload, id = 'saved') => {
+      const index = pending.findIndex((change) => change.id === id);
+      if (index >= 0) pending.splice(index, 1);
+      pending.push({ id, kind, payload: structuredClone(payload), createdAt: 2 });
+      return id;
+    });
+    spyOn(app.offline, 'getPending').and.callFake(async () => structuredClone(pending));
+    app.activeWorkout.set({ id: 'current', name: 'Full Body A', started_at: '2026-10-06T12:00:00Z', completed_at: null, workout_exercises: [] });
+    const row = app.workoutRows(app.activeWorkout()!).find((item) => item.family === 'hamstrings')!;
+    app.entryFor(row).reps = 8;
+    await app.saveWorkoutRowSet(row);
+    expect(app.workoutRows(app.activeWorkout()!).find((item) => item.family === 'hamstrings')!.options).toContain('New hamstring machine');
+    await app.finishWorkout();
+    const completed = app.workouts().find((day) => day.name === 'Full Body A')!;
+    expect(completed.completed_at).toBeTruthy();
+    expect(completed.workout_exercises.length).toBe(1);
+    expect(completed.workout_exercises[0].sets.length).toBe(1);
   });
 
   it('filters only ambiguous imported days for review', () => {

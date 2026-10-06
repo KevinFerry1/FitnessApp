@@ -1,0 +1,26 @@
+import { MuscleId } from './muscle-volume';
+
+export interface BodyRegion { muscle: MuscleId; path: string }
+export const FRONT_REGIONS: BodyRegion[] = [
+  { muscle: 'traps', path: 'M109 73 L91 80 L84 95 L107 91 Z M131 73 L149 80 L156 95 L133 91 Z' },
+  { muscle: 'shoulders', path: 'M83 83 C65 83 56 95 55 115 L71 125 L84 105 Z M157 83 C175 83 184 95 185 115 L169 125 L156 105 Z' },
+  { muscle: 'chest', path: 'M88 100 Q102 94 117 103 L117 139 Q99 149 84 132 Z M152 100 Q138 94 123 103 L123 139 Q141 149 156 132 Z' },
+  { muscle: 'biceps', path: 'M56 121 Q67 124 71 137 L62 168 Q51 175 46 165 Z M184 121 Q173 124 169 137 L178 168 Q189 175 194 165 Z' },
+  { muscle: 'forearms', path: 'M47 177 Q56 181 59 182 L43 228 L32 229 Q33 207 47 177 Z M193 177 Q184 181 181 182 L197 228 L208 229 Q207 207 193 177 Z' },
+  { muscle: 'abs', path: 'M105 151 Q110 146 117 148 L117 164 L104 164 Z M135 151 Q130 146 123 148 L123 164 L136 164 Z M103 169 L117 169 L117 185 L103 185 Z M137 169 L123 169 L123 185 L137 185 Z M103 190 L117 190 L117 207 L106 207 Z M137 190 L123 190 L123 207 L134 207 Z M106 212 L117 212 L117 226 L110 223 Z M134 212 L123 212 L123 226 L130 223 Z' },
+  { muscle: 'abductors', path: 'M89 222 L100 230 L94 261 L80 251 Z M151 222 L140 230 L146 261 L160 251 Z' },
+  { muscle: 'adductors', path: 'M105 240 L117 244 L112 299 L104 285 Z M135 240 L123 244 L128 299 L136 285 Z' },
+  { muscle: 'quads', path: 'M86 261 Q91 254 101 257 L105 307 L105 346 Q95 357 85 347 L77 300 Z M154 261 Q149 254 139 257 L135 307 L135 346 Q145 357 155 347 L163 300 Z' },
+  { muscle: 'calves', path: 'M85 369 Q93 363 101 374 L96 421 L88 443 L82 414 Z M155 369 Q147 363 139 374 L144 421 L152 443 L158 414 Z' },
+];
+export const BACK_REGIONS: BodyRegion[] = [
+  { muscle: 'traps', path: 'M110 73 L87 90 L96 131 L118 154 L118 98 Z M130 73 L153 90 L144 131 L122 154 L122 98 Z' },
+  { muscle: 'shoulders', path: FRONT_REGIONS.find((region) => region.muscle === 'shoulders')!.path },
+  { muscle: 'triceps', path: FRONT_REGIONS.find((region) => region.muscle === 'biceps')!.path },
+  { muscle: 'forearms', path: FRONT_REGIONS.find((region) => region.muscle === 'forearms')!.path },
+  { muscle: 'lats', path: 'M85 130 L94 139 L116 162 L114 211 L102 220 L87 187 Z M155 130 L146 139 L124 162 L126 211 L138 220 L153 187 Z' },
+  { muscle: 'abductors', path: 'M87 226 L96 233 L86 264 L77 254 Z M153 226 L144 233 L154 264 L163 254 Z' },
+  { muscle: 'glutes', path: 'M98 226 Q106 221 118 228 L117 264 Q100 277 87 260 Z M142 226 Q134 221 122 228 L123 264 Q140 277 153 260 Z' },
+  { muscle: 'hamstrings', path: 'M85 277 Q99 283 112 274 L106 325 L104 349 Q95 357 86 347 L79 311 Z M155 277 Q141 283 128 274 L134 325 L136 349 Q145 357 154 347 L161 311 Z' },
+  { muscle: 'calves', path: 'M85 368 Q94 360 103 371 L101 399 L94 432 L86 428 L80 403 Z M155 368 Q146 360 137 371 L139 399 L146 432 L154 428 L160 403 Z' },
+];

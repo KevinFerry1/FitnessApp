@@ -1,0 +1,75 @@
+<section class="muscle-page" aria-label="Weekly muscle sets">
+  <header class="week-nav">
+    <button class="week-arrow" (click)="moveWeek(-1)" aria-label="Previous week">‹</button>
+    <div><p>{{ isCurrentWeek() ? 'THIS WEEK' : 'WEEKLY HISTORY' }}</p><h2>{{ weekLabel() }}</h2><span>Monday – Sunday</span></div>
+    <button class="week-arrow" (click)="moveWeek(1)" [disabled]="isCurrentWeek()" aria-label="Next week">›</button>
+  </header>
+  @if (!isCurrentWeek()) { <button class="current-week" (click)="thisWeek()">Return to this week ↗</button> }
+
+  <div class="volume-summary" aria-live="polite">
+    <div><b>{{ totalSets() }}</b><span>sets logged</span></div>
+    <div><b>{{ inRange() }}<small> / {{ muscles.length }}</small></b><span>groups in range</span></div>
+    <div class="weekly-target"><b>4–12</b><span>your weekly target</span></div>
+  </div>
+  <div class="volume-legend" aria-label="Set count colors">
+    <span><i class="below"></i>0–3 below</span><span><i class="good"></i>4–12 in range</span><span><i class="above"></i>13+ above</span>
+  </div>
+  <p class="live-volume-note"><span class="live-dot"></span>Includes your active workout. Each logged set counts once toward its main muscle group.</p>
+
+  <div class="muscle-layout">
+    <article class="body-card">
+      <div class="body-switch" aria-label="Body view"><button (click)="view.set('front')" [class.active]="view() === 'front'" [attr.aria-pressed]="view() === 'front'">Front</button><button (click)="view.set('back')" [class.active]="view() === 'back'" [attr.aria-pressed]="view() === 'back'">Back</button></div>
+      <svg class="muscle-body" viewBox="0 0 240 520" role="group" [attr.aria-label]="view() + ' body muscle map'">
+        <ellipse class="body-shadow" cx="120" cy="504" rx="63" ry="7" />
+        <g class="body-base" aria-hidden="true">
+          <ellipse cx="120" cy="35" rx="21" ry="26" />
+          <path d="M110 59 L130 59 L134 77 L106 77 Z" />
+          <path d="M87 79 Q104 72 120 76 Q136 72 153 79 L166 120 L157 156 L149 204 L160 246 Q141 258 120 252 Q99 258 80 246 L91 204 L83 156 L74 120 Z" />
+          <path d="M81 82 Q60 81 53 111 L41 162 Q32 178 30 197 L20 242 L23 259 L32 265 L41 254 L48 230 L60 193 L66 164 L79 129 Z M159 82 Q180 81 187 111 L199 162 Q208 178 210 197 L220 242 L217 259 L208 265 L199 254 L192 230 L180 193 L174 164 L161 129 Z" />
+          <path d="M81 239 Q94 233 118 245 L114 291 L110 345 L108 365 L101 419 L96 479 L99 491 L79 498 L71 492 L82 473 L78 421 L75 366 L77 348 L72 291 Z M159 239 Q146 233 122 245 L126 291 L130 345 L132 365 L139 419 L144 479 L141 491 L161 498 L169 492 L158 473 L162 421 L165 366 L163 348 L168 291 Z" />
+          <path class="body-line" d="M120 95 L120 230 M84 359 Q96 354 107 360 M133 360 Q144 354 156 359" />
+        </g>
+        @for (region of regions(); track region.muscle) {
+          @let group = groupFor(region.muscle);
+          <g class="body-region" [class.below]="group.status === 'below'" [class.good]="group.status === 'good'" [class.above]="group.status === 'above'" [class.selected]="selected() === region.muscle" role="button" tabindex="0" [attr.aria-label]="group.label + ': ' + group.count + ' sets, ' + statusLabel(group.status)" [attr.aria-pressed]="selected() === region.muscle" (click)="selected.set(region.muscle)" (keydown.enter)="selected.set(region.muscle)" (keydown.space)="selected.set(region.muscle); $event.preventDefault()">
+            <title>{{ group.label }} · {{ group.count }} sets</title><path class="body-hit" [attr.d]="region.path" /><path [attr.d]="region.path" />
+          </g>
+        }
+      </svg>
+      <p class="body-instruction">Tap a muscle to see its exercises.</p>
+      @if (unassigned()) { <button class="unassigned-callout" (click)="selected.set('unassigned')">{{ unassigned() }} {{ unassigned() === 1 ? 'set needs' : 'sets need' }} a muscle group →</button> }
+    </article>
+
+    <aside class="muscle-sidebar" aria-label="Weekly muscle overview and details">
+      @if (selectedGroup(); as group) {
+        <section class="muscle-detail" [attr.aria-label]="group.label + ' weekly details'">
+          <button class="overview-back" (click)="selected.set(null)">‹ All muscles</button>
+          <p class="detail-eyebrow">{{ weekLabel() }}</p><h3>{{ group.label }}</h3>
+          <div class="detail-total" [class.below]="group.status === 'below'" [class.good]="group.status === 'good'" [class.above]="group.status === 'above'" aria-live="polite"><b>{{ group.count }}</b><span>sets this week</span></div>
+          <p class="target-message">{{ targetMessage(group) }}</p>
+          <h4>{{ group.exercises.length }} {{ group.exercises.length === 1 ? 'exercise' : 'exercises' }}</h4>
+          @for (exercise of group.exercises; track exercise.key) {
+            <article class="volume-exercise"><header><h5>{{ exercise.name }}</h5><b>{{ exercise.count }} {{ exercise.count === 1 ? 'set' : 'sets' }}</b></header>
+              @if (group.id === 'unassigned') {
+                <label class="assign-muscle"><span>Muscle group</span><select [attr.aria-label]="'Muscle group for ' + exercise.name" (change)="assign(exercise.name, $event)" [disabled]="assigning()"><option value="">Choose a group…</option>@for (muscle of muscles; track muscle.id) { <option [value]="muscle.id">{{ muscle.label }}</option> }</select></label>
+              }
+              @for (session of exercise.sessions; track session.key) {
+                <div class="volume-session"><p>{{ sessionDate(session.date) | date:'EEE, MMM d':'UTC' }} · {{ session.workout }}@if (session.inProgress) { <em>In progress</em> }</p>
+                  <div class="volume-set-list">@for (set of session.sets; track set.id) { <span><small>Set {{ set.set_number }}</small>{{ set.weight ?? '—' }} {{ set.weight_unit === 'plate' ? 'plates' : set.weight_unit }} × {{ set.reps ?? '—' }}</span> }</div>
+                  @if (session.notes) { <small class="session-note">{{ session.notes }}</small> }
+                </div>
+              }
+            </article>
+          } @empty { <p class="no-muscle-sets">No sets logged for this muscle in this week.</p> }
+        </section>
+      } @else {
+        <div class="overview-heading"><h3>Overview</h3><span>Sets</span></div>
+        @for (group of overview(); track group.id) {
+          <button class="muscle-overview-row" (click)="selected.set(group.id)" [attr.aria-label]="group.label + ', ' + group.count + ' sets, ' + (group.id === 'unassigned' ? 'choose a muscle group' : statusLabel(group.status))"><span><i [class]="group.id === 'unassigned' ? 'unknown' : group.status"></i>{{ group.label }}</span><b>{{ group.count }}<small>›</small></b></button>
+        }
+        <p class="overview-help">Select a group for the full breakdown.</p>
+      }
+    </aside>
+  </div>
+  @if (!totalSets()) { <p class="empty-volume">No sets this week yet. Log a set in Workout, or use the arrows to explore a previous week.</p> }
+</section>

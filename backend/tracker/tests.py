@@ -7,7 +7,7 @@ from django.core.management import call_command
 from io import StringIO
 
 from .importer import parse_exercise_line, parse_notes
-from .models import AppSettings, BodyWeightEntry, ExerciseSet, FoodLog, SavedMeal, Workout
+from .models import AppSettings, BodyWeightEntry, Exercise, ExerciseSet, FoodLog, SavedMeal, Workout
 
 
 class NotesParserTests(TestCase):
@@ -103,6 +103,32 @@ class NotesImportApiTests(TestCase):
 class OfflineSyncTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+
+    def test_saved_exercise_options_are_persistent_and_retry_safe(self):
+        payload = {"kind": "exercise_option", "client_id": "18707d69-6b90-48a7-a41a-4f50e6df188a",
+                   "payload": {"name": "New chest machine", "muscle_group": "chest"}}
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 201)
+        payload["payload"]["name"] = "new CHEST machine"
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 200)
+        self.assertEqual(Exercise.objects.count(), 1)
+        self.assertEqual(Workout.objects.count(), 0)
+        self.assertEqual(self.client.get("/api/exercises/").data[0]["muscle_group"], "chest")
+        payload["payload"]["name"] = " "
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 400)
+
+    def test_weekly_muscle_assignment_can_replace_an_unknown_saved_group(self):
+        exercise = Exercise.objects.create(name="Mystery machine", muscle_group="mystery_machine")
+        payload = {"kind": "exercise_option", "client_id": "18707d69-6b90-48a7-a41a-4f50e6df188a",
+                   "payload": {"name": exercise.name, "muscle_group": "chest"}}
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 200)
+        exercise.refresh_from_db()
+        self.assertEqual(exercise.muscle_group, "mystery_machine")
+        payload["payload"]["replace_group"] = True
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 200)
+        exercise.refresh_from_db()
+        self.assertEqual(exercise.muscle_group, "chest")
+        self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 200)
+        self.assertEqual(Exercise.objects.count(), 1)
 
     def test_profile_is_persistent(self):
         response = self.client.patch("/api/profile/", {

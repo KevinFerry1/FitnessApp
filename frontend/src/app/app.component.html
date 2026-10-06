@@ -8,6 +8,12 @@
   </header>
 
   <main>
+    @if (appUpdates.available()) {
+      <button class="sync-banner" (click)="appUpdates.apply()" [disabled]="appUpdates.updating()">
+        <span>{{ appUpdates.updating() ? 'Updating…' : 'Update available · Tap to update' }}</span>
+        <small>{{ appUpdates.error() || 'Your saved entries stay on this device.' }}</small>
+      </button>
+    }
     @if (!offline.storageAvailable()) {
       <div class="sync-banner"><span>Offline storage unavailable</span><small>This browser can save only while connected. Check browser storage settings.</small></div>
     }
@@ -118,7 +124,14 @@
             @if (entryFor(row); as entry) {
               <article class="training-row" [class.logged]="row.exercise?.sets?.length">
                 <div class="training-row-head"><span class="training-order">{{ row.exercise?.sets?.length ? '#' + (index + 1) : 'OPTIONAL' }}</span><span class="training-group">{{ row.label }}</span>@if (row.exercise) { <button class="training-remove" (click)="removeWorkoutRow(row)" [disabled]="saving()" [attr.aria-label]="'Remove ' + row.exercise.exercise.name">Remove</button> }</div>
-                <label class="training-select"><span>Exercise</span><select [(ngModel)]="entry.name" (ngModelChange)="entry.showThree = false" [attr.aria-label]="row.label + ' variation'">@for (option of row.options; track option) { <option [value]="option">{{ option }}</option> }</select></label>
+                <label class="training-select"><span>Exercise</span><select [ngModel]="entry.addingOption ? '__new__' : entry.name" (ngModelChange)="selectWorkoutOption(row, $event)" [attr.aria-label]="row.label + ' variation'">@for (option of row.options; track option) { <option [value]="option">{{ option }}</option> }<option value="__new__">＋ Add new exercise…</option></select></label>
+                @if (entry.addingOption) {
+                  <div class="training-new-option">
+                    <label class="training-notes"><span>New exercise name</span><input [(ngModel)]="entry.newName" maxlength="160" placeholder="Type the machine or exercise name" (keyup.enter)="!saving() && saveExerciseOption(row)" [attr.aria-label]="row.label + ' new exercise name'"></label>
+                    <small>Save it to this dropdown for future workouts.</small>
+                    <div class="training-option-actions"><button class="secondary" (click)="entry.addingOption = false; entry.newName = ''" [disabled]="saving()">Cancel</button><button class="primary" (click)="saveExerciseOption(row)" [disabled]="saving() || !entry.newName.trim()">Save option</button></div>
+                  </div>
+                }
                 @if (row.exercise?.sets?.length) {
                   <div class="training-saved-sets">@for (set of row.exercise!.sets; track set.id) { <div><span>Set {{ set.set_number }}</span><b>{{ set.weight ?? '—' }} {{ set.weight_unit === 'plate' ? 'plates' : set.weight_unit }} × {{ set.reps ?? '—' }}</b></div> }</div>
                 }
@@ -132,7 +145,7 @@
                 @if (entry.unit === 'plate') { <small class="plate-hint">2.25 plates means two 45s and a 25 in your notation.</small> }
                 <label class="training-notes"><span>Notes</span><input [(ngModel)]="entry.notes" placeholder="Seat, form, how it felt…"></label>
                 @if (row.exercise) { <button class="training-detail-save" (click)="saveWorkoutRowDetails(row)" [disabled]="saving()">Save name / note</button> }
-                <button class="primary training-save" (click)="saveWorkoutRowSet(row)" [disabled]="saving() || entry.reps === null">＋ Log set</button>
+                <button class="primary training-save" (click)="saveWorkoutRowSet(row)" [disabled]="saving() || entry.reps === null || entry.addingOption">＋ Log set</button>
               </article>
             }
           } @empty { <article class="empty-state compact"><h3>Add an exercise</h3><p>Choose one to start your custom workout.</p></article> }
@@ -144,6 +157,8 @@
         }
       </section>
     }
+
+    <app-muscle-week [hidden]="activeTab() !== 'muscles'" [workouts]="workouts()" [activeWorkout]="activeWorkout()" [exerciseOptions]="exerciseOptions()" [now]="clockNow()" [assigning]="saving()" (assignMuscle)="assignWeeklyMuscle($event)" />
 
     @if (activeTab() === 'progress') {
       <section class="page-view">
@@ -274,8 +289,8 @@
     }
 
     @if (sheet === 'workout') {
-      <p class="eyebrow">NEW SESSION</p><h2>Start a workout</h2><p class="sheet-subtitle">Upper and Lower days show your exercise options. Skip any row you do not train today.</p>
-      <label class="field"><span>Workout day</span><select [(ngModel)]="workoutName"><option>Upper A</option><option>Upper B</option><option>Lower A</option><option>Lower B</option><option>Custom</option></select></label>
+      <p class="eyebrow">NEW SESSION</p><h2>Start a workout</h2><p class="sheet-subtitle">Upper, Lower, and Full Body days show your exercise options. Skip any row you do not train today.</p>
+      <label class="field"><span>Workout day</span><select [(ngModel)]="workoutName"><option>Upper A</option><option>Upper B</option><option>Lower A</option><option>Lower B</option><option>Full Body A</option><option>Full Body B</option><option>Custom</option></select></label>
       @if (workoutName === 'Custom') { <label class="field"><span>Custom workout name</span><input [(ngModel)]="customWorkoutName" placeholder="Workout name"></label> }
       <button class="primary wide" (click)="startWorkout()" [disabled]="saving()">{{ saving() ? 'Starting…' : 'Start workout' }}</button>
     }

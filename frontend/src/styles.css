@@ -19,6 +19,10 @@ input, textarea, select { font-size: 16px; }
 .training-select span, .training-notes span, .training-inputs label span { display: block; margin-bottom: 5px; color: #61746a; font-size: .64rem; font-weight: 800; }
 .training-select select, .training-notes input, .training-inputs input, .training-inputs select { width: 100%; min-width: 0; min-height: 47px; padding: 0 10px; border: 1px solid #d6e2da; border-radius: 11px; background: #fbfdfb; color: #15231f; }
 .training-select select { font-weight: 750; }
+.training-new-option { margin-top: 12px; padding: 12px; border-radius: 12px; background: #e9f5ee; }
+.training-new-option small { display: block; margin: 7px 0 10px; color: #61746a; font-size: .72rem; }
+.training-option-actions { display: flex; gap: 8px; }
+.training-option-actions button { flex: 1; min-height: 44px; }
 .training-saved-sets { margin: 12px 0; overflow: hidden; border: 1px solid #e3eee6; border-radius: 10px; }
 .training-saved-sets div { display: flex; justify-content: space-between; gap: 9px; padding: 8px 10px; border-top: 1px solid #e3eee6; font-size: .72rem; }
 .training-saved-sets div:first-child { border-top: 0; }

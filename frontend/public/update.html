@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#173f30">
+  <title>Update Form</title>
+  <style>
+    body { margin: 0; padding: 48px 24px; font: 16px/1.5 -apple-system, BlinkMacSystemFont, sans-serif; color: #15231f; background: #f5f7f5; }
+    main { max-width: 440px; margin: auto; padding: 24px; border-radius: 20px; background: white; }
+    h1 { font-size: 26px; }
+    button { width: 100%; padding: 14px; border: 0; border-radius: 12px; background: #176b4a; color: white; font: inherit; font-weight: 700; }
+    button:disabled { opacity: .65; }
+    p { color: #61746a; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Update your fitness app</h1>
+    <p>Load the latest version, including Full Body A and B. Your saved workouts and entries stay on this device.</p>
+    <button id="update">Update and open app</button>
+    <p id="status" role="status" aria-live="polite"></p>
+  </main>
+  <script>
+    const button = document.getElementById('update');
+    const status = document.getElementById('status');
+    function operation(worker, action) {
+      return new Promise((resolve, reject) => {
+        const nonce = Math.floor(Math.random() * 1000000000);
+        const timeout = setTimeout(() => finish(new Error('Update timed out')), 60000);
+        const listen = (event) => {
+          if (event.data?.type !== 'OPERATION_COMPLETED' || event.data.nonce !== nonce) return;
+          finish(event.data.error ? new Error(event.data.error) : null);
+        };
+        const finish = (error) => {
+          clearTimeout(timeout);
+          navigator.serviceWorker.removeEventListener('message', listen);
+          error ? reject(error) : resolve();
+        };
+        navigator.serviceWorker.addEventListener('message', listen);
+        worker.postMessage({ action, nonce });
+      });
+    }
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      status.textContent = 'Downloading the latest app…';
+      try {
+        const response = await fetch('/ngsw.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Pi unavailable');
+        if ('serviceWorker' in navigator) {
+          const registration = await navigator.serviceWorker.getRegistration('/');
+          if (registration?.active) {
+            await operation(registration.active, 'CHECK_FOR_UPDATES');
+            await operation(registration.active, 'ACTIVATE_UPDATE');
+          }
+        }
+        window.location.replace('/');
+      } catch {
+        status.textContent = 'Could not update. Make sure Tailscale is connected, then try again.';
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
