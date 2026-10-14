@@ -23,7 +23,10 @@ class UserProfile(TimeStampedModel):
 
 
 class AppSettings(TimeStampedModel):
-    """Settings for this private, single-user tailnet deployment."""
+    """Per-account preferences; unclaimed legacy settings are never served."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="app_settings")
+    legacy_owner = models.BooleanField(default=False)
 
     display_name = models.CharField(max_length=80, default="Your profile")
     calorie_goal = models.PositiveIntegerField(default=2800)
@@ -33,15 +36,27 @@ class AppSettings(TimeStampedModel):
 
 
 class NotesImportBatch(models.Model):
-    client_id = models.UUIDField(unique=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE)
+    client_id = models.UUIDField()
     created_at = models.DateTimeField(auto_now_add=True)
     workout_ids = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "client_id"], name="notes_user_client_id")]
+
+
+class AccountInvite(models.Model):
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
 
 
 class ClientMutationId(models.Model):
     """UUID mixin lets retries after a dropped response avoid duplicate logs."""
 
-    client_id = models.UUIDField(unique=True, null=True, blank=True)
+    client_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -87,11 +102,13 @@ class FoodLog(ClientMutationId, TimeStampedModel):
 
     class Meta:
         ordering = ["-logged_at"]
+        constraints = [models.UniqueConstraint(fields=["user", "client_id"], name="foodlog_user_client_id")]
 
 
 class SavedMeal(ClientMutationId, TimeStampedModel):
     """Reusable nutrition snapshot for a frequently eaten meal or recipe."""
 
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="saved_meals")
     name = models.CharField(max_length=160)
     serving_description = models.CharField(max_length=120, default="1 serving")
     meal_type = models.CharField(max_length=16, choices=FoodLog.MEALS, default="lunch")
@@ -105,6 +122,7 @@ class SavedMeal(ClientMutationId, TimeStampedModel):
 
     class Meta:
         ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["user", "client_id"], name="meal_user_client_id")]
 
 
 class BodyWeightEntry(ClientMutationId, TimeStampedModel):
@@ -116,6 +134,7 @@ class BodyWeightEntry(ClientMutationId, TimeStampedModel):
 
     class Meta:
         ordering = ["-recorded_at"]
+        constraints = [models.UniqueConstraint(fields=["user", "client_id"], name="weight_user_client_id")]
 
 
 class Exercise(TimeStampedModel):
@@ -142,6 +161,7 @@ class Workout(ClientMutationId, TimeStampedModel):
 
     class Meta:
         ordering = ["-started_at"]
+        constraints = [models.UniqueConstraint(fields=["user", "client_id"], name="workout_user_client_id")]
 
 
 class WorkoutExercise(TimeStampedModel):

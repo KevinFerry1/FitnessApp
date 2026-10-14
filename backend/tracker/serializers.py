@@ -10,7 +10,21 @@ class FoodSerializer(serializers.ModelSerializer):
         read_only_fields = ("owner",)
 
 
-class FoodLogSerializer(serializers.ModelSerializer):
+class OwnedRelationsSerializer(serializers.ModelSerializer):
+    """Only accept references to records owned by the authenticated account."""
+    relation_owners = {}
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        for field, owner in self.relation_owners.items():
+            if request and field in fields:
+                fields[field].queryset = fields[field].queryset.filter(**{owner: request.user})
+        return fields
+
+
+class FoodLogSerializer(OwnedRelationsSerializer):
+    relation_owners = {"food": "owner"}
     label_photo_url = serializers.SerializerMethodField()
     per_serving = FoodSerializer(source="food", read_only=True)
 
@@ -51,13 +65,15 @@ class ExerciseSerializer(serializers.ModelSerializer):
         read_only_fields = ("owner",)
 
 
-class ExerciseSetSerializer(serializers.ModelSerializer):
+class ExerciseSetSerializer(OwnedRelationsSerializer):
+    relation_owners = {"workout_exercise": "workout__user"}
     class Meta:
         model = ExerciseSet
         fields = "__all__"
 
 
-class WorkoutExerciseSerializer(serializers.ModelSerializer):
+class WorkoutExerciseSerializer(OwnedRelationsSerializer):
+    relation_owners = {"workout": "user", "exercise_id": "owner"}
     exercise = ExerciseSerializer(read_only=True)
     exercise_id = serializers.PrimaryKeyRelatedField(source="exercise", queryset=Exercise.objects.all(), write_only=True)
     sets = ExerciseSetSerializer(many=True, read_only=True)

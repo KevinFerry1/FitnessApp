@@ -80,3 +80,5 @@ main { width: min(100%, 1100px); margin: auto; }
   .sheet { top: 50%; bottom: auto; left: 50%; width: min(570px, calc(100% - 40px)); max-height: 86vh; border-radius: 28px; transform: translate(-50%, -50%); animation: modal-in .2s ease-out; } .sheet.tall { min-height: 0; } .toast { bottom: 30px; } .history-card { padding: 17px; }
   @keyframes modal-in { from { transform: translate(-50%, -47%); opacity: .5; } }
 }
+
+.account-actions { display: grid; gap: 14px; margin-top: 24px; }

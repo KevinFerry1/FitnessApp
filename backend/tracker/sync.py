@@ -35,11 +35,11 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 class ProfileView(APIView):
     def get(self, request):
-        profile, _ = AppSettings.objects.get_or_create(pk=1)
+        profile, _ = AppSettings.objects.get_or_create(user=request.user)
         return Response(ProfileSerializer(profile).data)
 
     def patch(self, request):
-        profile, _ = AppSettings.objects.get_or_create(pk=1)
+        profile, _ = AppSettings.objects.get_or_create(user=request.user)
         serializer = ProfileSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -119,6 +119,7 @@ def replace_food_log(log, payload):
     food = log.food if log.food and not log.food.logs.exclude(pk=log.pk).exists() else Food()
     for field in ("name", "calories", "protein", "carbohydrates", "fat", "sugar", "added_sugar"):
         setattr(food, field, payload[field])
+    food.owner = log.user
     food.serving_description = payload["serving_description"]
     food.save()
     quantity = payload["serving_quantity"]
@@ -218,28 +219,30 @@ class SyncView(APIView):
         with transaction.atomic():
             if kind == "exercise_option":
                 replace_group = payload.pop("replace_group")
-                exercise = Exercise.objects.filter(owner=None, name__iexact=payload["name"]).first()
+                exercise = Exercise.objects.filter(owner=request.user, name__iexact=payload["name"]).first()
                 created = exercise is None
                 if created:
-                    exercise = Exercise.objects.create(**payload)
+                    exercise = Exercise.objects.create(owner=request.user, **payload)
                 elif not exercise.muscle_group or replace_group:
                     exercise.muscle_group = payload["muscle_group"]
                     exercise.save(update_fields=["muscle_group", "updated_at"])
                 return Response({"id": exercise.id}, status=201 if created else 200)
 
             if kind == "food_log":
-                existing = FoodLog.objects.select_related("food").filter(client_id=client_id).first()
+                existing = FoodLog.objects.select_related("food").filter(user=request.user, client_id=client_id).first()
                 if existing:
                     replace_food_log(existing, payload)
                     return Response({"id": existing.id, "duplicate": True})
                 quantity = payload["serving_quantity"]
                 food = Food.objects.create(
+                    owner=request.user,
                     name=payload["name"], calories=payload["calories"], protein=payload["protein"],
                     carbohydrates=payload["carbohydrates"], fat=payload["fat"],
                     sugar=payload["sugar"], added_sugar=payload["added_sugar"],
                     serving_description=payload["serving_description"],
                 )
                 log = FoodLog.objects.create(
+                    user=request.user,
                     client_id=client_id, food=food, logged_at=payload["logged_at"],
                     meal_type=payload["meal_type"], name_snapshot=food.name,
                     serving_quantity=quantity,
@@ -256,7 +259,7 @@ class SyncView(APIView):
                 return Response({"id": log.id}, status=status.HTTP_201_CREATED)
 
             if kind == "food_log_update":
-                log = FoodLog.objects.select_related("food").filter(pk=payload["server_id"]).first()
+                log = FoodLog.objects.select_related("food").filter(user=request.user, pk=payload["server_id"]).first()
                 if log is None:
                     return Response({"detail": "Food log not found"}, status=404)
                 # The payload is a complete replacement, so retrying after a lost response is safe.
@@ -264,12 +267,14 @@ class SyncView(APIView):
                 return Response({"id": log.id})
 
             if kind == "saved_meal":
-                meal = SavedMeal.objects.filter(client_id=client_id).first()
+                meal = SavedMeal.objects.filter(user=request.user, client_id=client_id).first()
                 if meal is None and payload.get("server_id"):
-                    meal = SavedMeal.objects.filter(pk=payload["server_id"]).first()
+                    meal = SavedMeal.objects.filter(user=request.user, pk=payload["server_id"]).first()
+                if meal is None and payload.get("server_id"):
+                    return Response({"detail": "Saved meal not found"}, status=404)
                 created = meal is None
                 if created:
-                    meal = SavedMeal(client_id=client_id)
+                    meal = SavedMeal(user=request.user, client_id=client_id)
                 elif meal.client_id is None:
                     meal.client_id = client_id
                 for field in ("name", "serving_description", "meal_type", "calories", "protein",
@@ -279,7 +284,7 @@ class SyncView(APIView):
                 return Response({"id": meal.id}, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
             if kind == "saved_meal_delete":
-                meals = SavedMeal.objects.all()
+                meals = SavedMeal.objects.filter(user=request.user)
                 if payload.get("server_id"):
                     meals = meals.filter(pk=payload["server_id"])
                 if payload.get("meal_client_id"):
@@ -288,21 +293,21 @@ class SyncView(APIView):
                 return Response({"deleted": bool(count)})
 
             if kind == "weight_entry":
-                existing = BodyWeightEntry.objects.filter(client_id=client_id).first()
+                existing = BodyWeightEntry.objects.filter(user=request.user, client_id=client_id).first()
                 if existing:
                     return Response({"id": existing.id, "duplicate": True})
-                entry = BodyWeightEntry.objects.create(client_id=client_id, **payload)
+                entry = BodyWeightEntry.objects.create(user=request.user, client_id=client_id, **payload)
                 return Response({"id": entry.id}, status=status.HTTP_201_CREATED)
 
             if kind == "profile":
-                profile, _ = AppSettings.objects.get_or_create(pk=1)
+                profile, _ = AppSettings.objects.get_or_create(user=request.user)
                 for field, value in payload.items():
                     setattr(profile, field, value)
                 profile.save()
                 return Response(ProfileSerializer(profile).data)
 
             if kind == "workout_delete":
-                workouts = Workout.objects.all()
+                workouts = Workout.objects.filter(user=request.user)
                 if payload.get("server_id"):
                     workouts = workouts.filter(pk=payload["server_id"])
                 if payload.get("workout_client_id"):
@@ -310,13 +315,15 @@ class SyncView(APIView):
                 count, _ = workouts.delete()
                 return Response({"deleted": bool(count)})
 
-            workout = Workout.objects.filter(client_id=client_id).first()
+            workout = Workout.objects.filter(user=request.user, client_id=client_id).first()
             if workout is None and payload.get("server_id"):
-                workout = Workout.objects.filter(pk=payload["server_id"]).first()
+                workout = Workout.objects.filter(user=request.user, pk=payload["server_id"]).first()
                 if workout and workout.client_id not in (None, client_id):
                     return Response({"detail": "Workout belongs to a different client ID"}, status=409)
+            if workout is None and payload.get("server_id"):
+                return Response({"detail": "Workout not found"}, status=404)
             if workout is None:
-                workout = Workout(client_id=client_id)
+                workout = Workout(user=request.user, client_id=client_id)
             if payload["revision"] <= workout.sync_revision:
                 return Response({"id": workout.id, "revision": workout.sync_revision, "duplicate": True})
 
@@ -329,9 +336,9 @@ class SyncView(APIView):
             workout.save()
             workout.workout_exercises.all().delete()
             for order, item in enumerate(payload["exercises"]):
-                exercise = Exercise.objects.filter(owner=None, name__iexact=item["name"]).first()
+                exercise = Exercise.objects.filter(owner=request.user, name__iexact=item["name"]).first()
                 if exercise is None:
-                    exercise = Exercise.objects.create(name=item["name"])
+                    exercise = Exercise.objects.create(owner=request.user, name=item["name"])
                 workout_exercise = WorkoutExercise.objects.create(
                     workout=workout, exercise=exercise, order=order, notes=item.get("notes", "")
                 )

@@ -16,4 +16,4 @@ rsync -az "$repo_dir/deploy/pi/" "$pi_host:fitnessapp/deploy/pi/"
 rsync -az "$repo_dir/requirements.txt" "$pi_host:fitnessapp/requirements.txt"
 rsync -az "$repo_dir/frontend/dist/frontend/browser/" "$pi_host:fitnessapp/frontend/dist/frontend/browser/"
 ssh "$pi_host" 'bash "$HOME/fitnessapp/deploy/pi/install.sh"'
-ssh "$pi_host" 'curl --retry 10 --retry-delay 1 --retry-connrefused -fsS -o /dev/null http://127.0.0.1:8080/ && curl -fsS -o /dev/null http://127.0.0.1:8080/api/today/'
+ssh "$pi_host" 'curl --retry 10 --retry-delay 1 --retry-connrefused -fsS -o /dev/null http://127.0.0.1:8080/ && curl -fsS -o /dev/null http://127.0.0.1:8080/api/auth/session/'

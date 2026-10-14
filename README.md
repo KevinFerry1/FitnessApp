@@ -4,6 +4,8 @@ A mobile-first calorie, bodyweight, and gym-workout tracker. The MVP is an insta
 
 ## What works now
 
+- Account login/logout, one-use family invitations, private per-account trackers, and account-specific offline storage
+
 - Today dashboard with calories, protein, known total/added sugar, latest bodyweight, and today's activity
 - Food logging with editable entries/servings, barcode lookup (live camera, barcode photo, or typed number), on-device Nutrition Facts photo OCR, fractional servings, and reusable meals/recipes
 - Select one or several already-logged foods from today to save their combined quantities and macros as one recipe
@@ -41,7 +43,7 @@ npm install
 npm start
 ```
 
-Open [http://localhost:4200](http://localhost:4200). The Angular dev server proxies `/api` to Django on port 8000.
+Create a local administrator with `python backend/manage.py createsuperuser`, then open [http://localhost:4200](http://localhost:4200) and sign in. The Angular dev server proxies `/api` to Django on port 8000.
 
 SQLite is used automatically for a zero-setup local run. To use the intended PostgreSQL setup:
 
@@ -125,4 +127,4 @@ ssh pieme@100.74.89.59 'tailscale serve --https=8443 --bg 8080'
 
 The deploy script is repeatable. It copies the backend and built frontend, upgrades a Python virtual environment, makes a pre-migration backup, applies migrations, and restarts a user-level systemd service. A daily SQLite backup timer stores copies in `~/fitnessapp-data/backups` on the Pi. The database and secret live outside the deploy directory in `~/fitnessapp-data`. Re-deploys never sync the laptop's local SQLite database.
 
-The API currently has no login. Every device authorized onto the tailnet can access this personal tracker, so keep tailnet membership limited to devices you trust. Do not use Tailscale Funnel or forward port 8080/8443 to the public internet until app-level authentication is implemented. Backups are on the same SD card; copy them off-device periodically for recovery from card failure.
+The API requires an account. Sign-up is invite-only; each account has its own history, preferences, and offline storage. Before deploying this version, follow [Accounts and family rollout](docs/ACCOUNTS_AND_HOSTING.md) to create the host account and explicitly assign the existing tracker before its first login. The same guide covers publishing a normal HTTPS address through a tunnel while keeping the Pi. Backups are on the same SD card; copy them off-device periodically for recovery from card failure.

@@ -1,3 +1,6 @@
+import { AuthService } from './auth.service';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { DestroyRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Component, OnInit, OnDestroy, signal, ChangeDetectionStrategy, NgZone } from '@angular/core';
@@ -148,13 +151,15 @@ interface WorkoutEntry {
 }
 
 @Component({
-  selector: 'app-root',
+  selector: 'app-tracker',
   imports: [CommonModule, FormsModule, MuscleWeekComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './app.component.css',
 })
 export class AppComponent implements OnInit, OnDestroy {
+  private readonly destroyRef = inject(DestroyRef);
+  inviteLink = signal('');
   readonly api = '/api';
   readonly tabs: Array<{ id: Tab; label: string; icon: string }> = [
     { id: 'today', label: 'Today', icon: '⌂' },
@@ -238,12 +243,25 @@ export class AppComponent implements OnInit, OnDestroy {
   private entryWorkoutId = '';
   private workoutEntries: Record<string, WorkoutEntry> = {};
 
-  constructor(private readonly http: HttpClient, readonly offline: OfflineStore, private readonly zone: NgZone, readonly appUpdates: AppUpdates) {}
+  constructor(private readonly http: HttpClient, readonly offline: OfflineStore, private readonly zone: NgZone, readonly appUpdates: AppUpdates, readonly auth: AuthService) {}
+
+  async createInvite(): Promise<void> {
+    this.saving.set(true);
+    this.http.post<{ invite_path: string }>('/api/auth/invites/', {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: data => { this.inviteLink.set(location.origin + data.invite_path); this.saving.set(false); },
+      error: () => { this.showToast('Could not create an invitation. Try again when online.'); this.saving.set(false); },
+    });
+  }
+
+  async copyInvite(): Promise<void> {
+    try { await navigator.clipboard.writeText(this.inviteLink()); this.showToast('Invitation copied'); }
+    catch { this.showToast('Select and copy the invitation link.'); }
+  }
 
   ngOnInit(): void {
     this.appUpdates.start();
     this.clockInterval = window.setInterval(() => this.clockNow.set(Date.now()), 1000);
-    this.offline.synced.subscribe(() => this.refresh());
+    this.offline.synced.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     void this.initialize();
   }
 
@@ -273,7 +291,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   refresh(): void {
     this.loading.set(true);
-    this.http.get<TodayResponse>(`${this.api}/today/`).subscribe({
+    this.http.get<TodayResponse>(`${this.api}/today/`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (data) => {
         this.serverToday = data;
         void this.offline.cache('today', data).catch(() => {});
@@ -285,14 +303,14 @@ export class AppComponent implements OnInit, OnDestroy {
       },
     });
     this.loadWorkouts();
-    this.http.get<SavedExerciseOption[]>(`${this.api}/exercises/`).subscribe({ next: (data) => {
+    this.http.get<SavedExerciseOption[]>(`${this.api}/exercises/`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (data) => {
       this.serverExerciseOptions = data;
       void this.offline.cache('exerciseOptions', data).catch(() => {});
       void this.applyLocalState();
     }, error: () => {} });
     this.loadSavedMeals();
     this.loadWeightEntries();
-    this.http.get<ProfileSettings>(`${this.api}/profile/`).subscribe({ next: (data) => {
+    this.http.get<ProfileSettings>(`${this.api}/profile/`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (data) => {
       this.profile.set({ ...this.profile(), ...data });
       void this.offline.cache('profile', data).catch(() => {});
       void this.applyLocalState();
@@ -1115,7 +1133,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.barcodeLoading.set(true);
     this.http.get<{ name: string; brand: string; calories: number | null; protein: number | null;
       carbohydrates: number | null; fat: number | null; sugar: number | null; added_sugar: number | null;
-      serving_description: string }>(`${this.api}/food-lookup/${code}/`).subscribe({
+      serving_description: string }>(`${this.api}/food-lookup/${code}/`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (product) => {
         if (token !== this.barcodeLookupToken) return;
         this.foodForm.name = product.brand ? `${product.name} — ${product.brand}` : product.name;
@@ -1381,7 +1399,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.http.post<{ workouts: ParsedWorkout[]; warnings: Array<{ line: number; text: string; message: string }> }>(`${this.api}/imports/notes/`, {
       text: this.notesText,
       commit: false,
-    }).subscribe({
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (result) => {
         this.importPreview.set(result);
         this.saving.set(false);
@@ -1396,7 +1414,7 @@ export class AppComponent implements OnInit, OnDestroy {
       text: this.notesText,
       commit: true,
       client_id: this.notesImportId,
-    }).subscribe({
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (result) => {
         this.notesText = '';
         this.notesImportId = crypto.randomUUID();
@@ -1442,7 +1460,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private loadWorkouts(): void {
-    this.http.get<Workout[]>(`${this.api}/workouts/`).subscribe({ next: (data) => {
+    this.http.get<Workout[]>(`${this.api}/workouts/`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (data) => {
       this.serverWorkouts = data;
       void this.offline.cache('workouts', data).catch(() => {});
       void this.applyLocalState();
@@ -1450,7 +1468,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private loadSavedMeals(): void {
-    this.http.get<SavedMeal[]>(`${this.api}/saved-meals/`).subscribe({ next: (data) => {
+    this.http.get<SavedMeal[]>(`${this.api}/saved-meals/`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (data) => {
       this.serverSavedMeals = data;
       void this.offline.cache('savedMeals', data).catch(() => {});
       void this.applyLocalState();
@@ -1458,7 +1476,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private loadWeightEntries(): void {
-    this.http.get<WeightEntry[]>(`${this.api}/weight-entries/`).subscribe({ next: (data) => {
+    this.http.get<WeightEntry[]>(`${this.api}/weight-entries/`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (data) => {
       this.serverWeightEntries = data;
       void this.offline.cache('weightEntries', data).catch(() => {});
       void this.applyLocalState();

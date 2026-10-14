@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from unittest.mock import patch
 from io import BytesIO
@@ -46,9 +47,21 @@ class NotesParserTests(TestCase):
         self.assertEqual(len(warnings), 1)
 
 
-class NotesImportApiTests(TestCase):
-    def test_preview_does_not_write_and_commit_creates_nested_data(self):
+class AccountTestCase(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="tester", password="Example-pass-785!")
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def account_client(self):
         client = APIClient()
+        client.force_authenticate(self.user)
+        return client
+
+
+class NotesImportApiTests(AccountTestCase):
+    def test_preview_does_not_write_and_commit_creates_nested_data(self):
+        client = self.account_client()
         payload = {"text": "9/21/26 upper B\nChest fly 2x7,6 25lb"}
         preview = client.post("/api/imports/notes/", payload, format="json")
         self.assertEqual(preview.status_code, 200)
@@ -64,7 +77,7 @@ class NotesImportApiTests(TestCase):
         self.assertEqual(Workout.objects.count(), 1)
 
     def test_preview_and_import_keep_weight_after_comma_separator(self):
-        client = APIClient()
+        client = self.account_client()
         payload = {"text": "9/21/26 upper B\nArsenal chest fly 2x7, 25lb (4)"}
         preview = client.post("/api/imports/notes/", payload, format="json")
         sets = preview.data["workouts"][0]["exercises"][0]["sets"]
@@ -75,7 +88,7 @@ class NotesImportApiTests(TestCase):
         self.assertEqual(list(ExerciseSet.objects.values_list("reps", "weight")), [(7, 25), (7, 25)])
 
     def test_legacy_weight_repair_is_dry_run_and_conservative(self):
-        client = APIClient()
+        client = self.account_client()
         payload = {"text": "9/21/26 upper B\nChest fly 2x7, 25lb (4)"}
         # Recreate the old parser output without invoking the fixed parser.
         client.post("/api/imports/notes/", {**payload, "commit": True}, format="json")
@@ -100,9 +113,7 @@ class NotesImportApiTests(TestCase):
         self.assertIn("Would repair 0 exercises", output.getvalue())
 
 
-class OfflineSyncTests(TestCase):
-    def setUp(self):
-        self.client = APIClient()
+class OfflineSyncTests(AccountTestCase):
 
     def test_saved_exercise_options_are_persistent_and_retry_safe(self):
         payload = {"kind": "exercise_option", "client_id": "18707d69-6b90-48a7-a41a-4f50e6df188a",
@@ -117,7 +128,7 @@ class OfflineSyncTests(TestCase):
         self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 400)
 
     def test_weekly_muscle_assignment_can_replace_an_unknown_saved_group(self):
-        exercise = Exercise.objects.create(name="Mystery machine", muscle_group="mystery_machine")
+        exercise = Exercise.objects.create(owner=self.user, name="Mystery machine", muscle_group="mystery_machine")
         payload = {"kind": "exercise_option", "client_id": "18707d69-6b90-48a7-a41a-4f50e6df188a",
                    "payload": {"name": exercise.name, "muscle_group": "chest"}}
         self.assertEqual(self.client.post("/api/sync/", payload, format="json").status_code, 200)
@@ -210,9 +221,7 @@ class OfflineSyncTests(TestCase):
         self.assertEqual(Workout.objects.count(), 0)
 
 
-class FoodFeaturesTests(TestCase):
-    def setUp(self):
-        self.client = APIClient()
+class FoodFeaturesTests(AccountTestCase):
 
     def test_saved_meal_crud_and_food_snapshot(self):
         meal = {"name": "Oat bowl", "serving_description": "1 bowl", "meal_type": "breakfast",

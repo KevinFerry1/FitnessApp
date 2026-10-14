@@ -31,11 +31,11 @@ from .serializers import (
 class OwnerViewSet(viewsets.ModelViewSet):
     owner_field = "user"
 
+    def get_queryset(self):
+        return super().get_queryset().filter(**{self.owner_field: self.request.user})
+
     def perform_create(self, serializer):
-        if self.request.user.is_authenticated:
-            serializer.save(**{self.owner_field: self.request.user})
-        else:
-            serializer.save()
+        serializer.save(**{self.owner_field: self.request.user})
 
 
 class FoodViewSet(OwnerViewSet):
@@ -51,16 +51,16 @@ class FoodLogViewSet(OwnerViewSet):
 
 class FoodLabelPhotoView(APIView):
     def get(self, request, pk):
-        log = get_object_or_404(FoodLog, pk=pk)
+        log = get_object_or_404(FoodLog, pk=pk, user=request.user)
         if not log.label_photo:
             return Response({"detail": "No label photo saved"}, status=404)
         response = HttpResponse(bytes(log.label_photo), content_type="image/jpeg")
-        response["Cache-Control"] = "private, max-age=86400"
+        response["Cache-Control"] = "private, no-store"
         response["X-Content-Type-Options"] = "nosniff"
         return response
 
 
-class SavedMealViewSet(viewsets.ModelViewSet):
+class SavedMealViewSet(OwnerViewSet):
     queryset = SavedMeal.objects.all()
     serializer_class = SavedMealSerializer
 
@@ -114,12 +114,20 @@ class WorkoutViewSet(OwnerViewSet):
     serializer_class = WorkoutSerializer
 
 
-class WorkoutExerciseViewSet(viewsets.ModelViewSet):
+class WorkoutExerciseViewSet(OwnerViewSet):
+    owner_field = "workout__user"
+
+    def perform_create(self, serializer):
+        serializer.save()
     queryset = WorkoutExercise.objects.select_related("exercise", "workout").prefetch_related("sets").all()
     serializer_class = WorkoutExerciseSerializer
 
 
-class ExerciseSetViewSet(viewsets.ModelViewSet):
+class ExerciseSetViewSet(OwnerViewSet):
+    owner_field = "workout_exercise__workout__user"
+
+    def perform_create(self, serializer):
+        serializer.save()
     queryset = ExerciseSet.objects.select_related("workout_exercise").all()
     serializer_class = ExerciseSetSerializer
 
@@ -129,7 +137,7 @@ class TodayView(APIView):
         today = timezone.localdate()
         start = timezone.make_aware(datetime.combine(today, time.min))
         end = timezone.make_aware(datetime.combine(today, time.max))
-        logs = FoodLog.objects.filter(logged_at__range=(start, end))
+        logs = FoodLog.objects.filter(user=request.user, logged_at__range=(start, end))
         totals = logs.aggregate(
             calories=Sum("calories_snapshot"),
             protein=Sum("protein_snapshot"),
@@ -138,10 +146,10 @@ class TodayView(APIView):
             sugar=Sum("sugar_snapshot"),
             added_sugar=Sum("added_sugar_snapshot"),
         )
-        workouts = Workout.objects.filter(started_at__range=(start, end)).prefetch_related(
+        workouts = Workout.objects.filter(user=request.user, started_at__range=(start, end)).prefetch_related(
             "workout_exercises__exercise", "workout_exercises__sets"
         )
-        weight = BodyWeightEntry.objects.filter(recorded_at__lte=end).first()
+        weight = BodyWeightEntry.objects.filter(user=request.user, recorded_at__lte=end).first()
         return Response(
             {
                 "date": today,
@@ -173,14 +181,14 @@ class NotesImportView(APIView):
         created_ids = []
         with transaction.atomic():
             if client_id:
-                previous = NotesImportBatch.objects.filter(client_id=client_id).first()
+                previous = NotesImportBatch.objects.filter(user=request.user, client_id=client_id).first()
                 if previous:
                     return Response({"workouts": parsed, "warnings": warnings, "committed": True,
                                      "created_workout_ids": previous.workout_ids, "duplicate": True})
             for parsed_workout in workouts:
                 started_at = timezone.make_aware(datetime.combine(parsed_workout.workout_date, time(hour=12)))
                 workout = Workout.objects.create(
-                    user=request.user if request.user.is_authenticated else None,
+                    user=request.user,
                     name=parsed_workout.name,
                     started_at=started_at,
                     completed_at=started_at,
@@ -189,7 +197,7 @@ class NotesImportView(APIView):
                 created_ids.append(workout.id)
                 for order, parsed_exercise in enumerate(parsed_workout.exercises):
                     exercise, _ = Exercise.objects.get_or_create(
-                        owner=request.user if request.user.is_authenticated else None,
+                        owner=request.user,
                         name__iexact=parsed_exercise.name,
                         defaults={"name": parsed_exercise.name},
                     )
@@ -213,7 +221,7 @@ class NotesImportView(APIView):
                         ]
                     )
             if client_id:
-                NotesImportBatch.objects.create(client_id=client_id, workout_ids=created_ids)
+                NotesImportBatch.objects.create(user=request.user, client_id=client_id, workout_ids=created_ids)
         return Response(
             {"workouts": parsed, "warnings": warnings, "committed": True, "created_workout_ids": created_ids},
             status=status.HTTP_201_CREATED,

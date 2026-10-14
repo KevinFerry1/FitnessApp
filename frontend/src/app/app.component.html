@@ -210,10 +210,21 @@
 
     @if (activeTab() === 'profile') {
       <section class="page-view">
-        <article class="profile-card"><div class="large-avatar">{{ initials }}</div><div><h2>{{ profile().display_name }}</h2><p>Private tracker on your Tailscale network</p></div></article>
+        <article class="profile-card"><div class="large-avatar">{{ initials }}</div><div><h2>{{ profile().display_name }}</h2><p>Your personal tracker · {{ auth.user()?.username }}</p></div></article>
         <div class="settings-list"><button (click)="open('profile')"><span>Daily calorie goal</span><b>{{ calorieGoal | number }} kcal</b></button><button (click)="open('profile')"><span>Protein goal</span><b>{{ proteinGoal }} g</b></button><button (click)="open('profile')"><span>Weight units</span><b>{{ profile().preferred_weight_unit }}</b></button><button (click)="open('import')"><span>Import workout notes</span><b>›</b></button></div>
         <button class="secondary wide profile-edit" (click)="open('profile')">Edit profile settings</button>
-        <p class="profile-note">Changes are saved on this device first and sync to the Pi when connected. {{ offline.pendingCount() }} pending.</p>
+        <div class="account-actions">
+          @if (auth.user()?.can_invite) {
+            <button class="secondary wide" (click)="createInvite()" [disabled]="saving() || auth.offlineSession()">Create family invitation</button>
+            @if (inviteLink()) {
+              <label class="field"><span>One-use invitation · expires in 7 days</span><input [value]="inviteLink()" readonly (focus)="$any($event.target).select()" aria-label="Family invitation link"></label>
+              <button class="secondary wide" (click)="copyInvite()">Copy invitation link</button>
+            }
+          }
+          <button class="secondary wide" (click)="auth.signOut()" [disabled]="auth.busy() || offline.syncing()">Sign out</button>
+          @if (auth.error()) { <p class="profile-note" role="alert">{{ auth.error() }}</p> }
+        </div>
+        <p class="profile-note">Changes are saved on this device first and sync to your account when connected. {{ offline.pendingCount() }} pending.</p>
       </section>
     }
   </main>
@@ -302,7 +313,7 @@
     }
 
     @if (sheet === 'profile') {
-      <p class="eyebrow">YOUR SETTINGS</p><h2>Edit profile</h2><p class="sheet-subtitle">These goals and units are saved on the Pi and shared across your devices.</p>
+      <p class="eyebrow">YOUR SETTINGS</p><h2>Edit profile</h2><p class="sheet-subtitle">These goals and units are saved to your account and shared across your devices.</p>
       <label class="field"><span>Name</span><input [(ngModel)]="profileForm.display_name" maxlength="80" placeholder="Your name"></label>
       <div class="field-row"><label class="field"><span>Daily calories</span><input type="number" inputmode="numeric" min="1" [(ngModel)]="profileForm.calorie_goal"></label><label class="field"><span>Protein goal (g)</span><input type="number" inputmode="numeric" min="1" [(ngModel)]="profileForm.protein_goal"></label></div>
       <label class="field"><span>Weight unit for new logs</span><select [(ngModel)]="profileForm.preferred_weight_unit"><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>

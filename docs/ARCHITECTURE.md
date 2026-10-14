@@ -21,6 +21,8 @@ During local development, Angular runs on `:4200` and proxies `/api` to Django o
 
 The API currently exposes:
 
+- `/api/auth/session/`, `/api/auth/login/`, `/api/auth/signup/`, `/api/auth/logout/`, `/api/auth/invites/`
+
 - `/api/today/`
 - `/api/foods/`
 - `/api/food-logs/`
@@ -30,10 +32,10 @@ The API currently exposes:
 - `/api/workout-exercises/`
 - `/api/exercise-sets/`
 - `/api/imports/notes/` (`commit: false` previews, `commit: true` writes transactionally)
-- `/api/profile/` (single-user settings)
+- `/api/profile/` (per-account settings)
 - `/api/sync/` (idempotent offline mutation replay)
 
-The current Pi deployment is private to the tailnet and intentionally has one shared profile without app-level login. Nullable ownership fields remain as seams for eventual accounts. Before public or multi-user access, add authentication, strict per-user filtering, and authorization checks.
+Django session authentication and CSRF protection secure all tracker APIs. Signup requires a one-use invitation from an administrator. Ownership filtering applies to CRUD, nested references, dashboards, photos, imports, and sync. Nullable ownership fields retain unclaimed legacy records for the explicit `claim_tracker` administrator command; these records are never served to new accounts. Each account uses a separate IndexedDB database, and replay carries an account header to detect session changes across tabs. See [Accounts and hosting](ACCOUNTS_AND_HOSTING.md) for rollout and public access.
 
 ## Frontend
 
@@ -51,11 +53,11 @@ The production build registers Angular's service worker and caches the applicati
 
 ## Environment variables
 
-See `.env.example`. PostgreSQL is selected whenever `POSTGRES_DB` exists; otherwise SQLite is used. The Pi stores a generated production secret and SQLite file under `~/fitnessapp-data`; Gunicorn binds only to loopback and Tailscale Serve restricts access to the tailnet. Do not expose the permissive API to the public internet.
+See `.env.example`. PostgreSQL is selected whenever `POSTGRES_DB` exists; otherwise SQLite is used. The Pi stores a generated production secret and SQLite file under `~/fitnessapp-data`; Gunicorn binds only to loopback and Tailscale Serve restricts access to the tailnet. Configure allowed hosts and trusted HTTPS origins when publishing. Keep Gunicorn bound to loopback behind the tunnel/reverse proxy.
 
 ## Next production hardening
 
-1. Token or session authentication and strict per-user query filtering
+1. Email password recovery, account export/deletion, and invitation management
 2. CI, API pagination, and observability
 3. Off-device backups (daily Pi backups are on the same SD card)
 4. Conflict handling for simultaneous edits from multiple devices

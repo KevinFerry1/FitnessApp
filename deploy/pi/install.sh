@@ -18,8 +18,13 @@ if [[ ! -e "$env_file" ]]; then
   dns_name="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
   secret="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
   umask 077
-  printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,localhost,127.0.0.1\nFITNESS_DB_PATH=%s/db.sqlite3\nAPP_TIME_ZONE=America/New_York\nCORS_ALLOWED_ORIGINS=\n' \
-    "$secret" "$dns_name" "$data_dir" > "$env_file"
+  printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,localhost,127.0.0.1\nFITNESS_DB_PATH=%s/db.sqlite3\nAPP_TIME_ZONE=America/New_York\nCORS_ALLOWED_ORIGINS=\nCSRF_TRUSTED_ORIGINS=https://%s:8443\n' \
+    "$secret" "$dns_name" "$data_dir" "$dns_name" > "$env_file"
+fi
+# Existing installations need the HTTPS origin for session/CSRF-protected writes.
+if ! grep -q '^CSRF_TRUSTED_ORIGINS=' "$env_file"; then
+  dns_name="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
+  printf 'CSRF_TRUSTED_ORIGINS=https://%s:8443\n' "$dns_name" >> "$env_file"
 fi
 chmod 600 "$env_file"
 

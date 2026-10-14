@@ -16,6 +16,7 @@ from .views import (
     WorkoutViewSet,
 )
 from .sync import ProfileView, SyncView
+from .accounts import SessionView, LoginView, SignupView, LogoutView, InviteView
 
 router = DefaultRouter()
 router.register("foods", FoodViewSet)
@@ -28,6 +29,11 @@ router.register("workout-exercises", WorkoutExerciseViewSet)
 router.register("exercise-sets", ExerciseSetViewSet)
 
 urlpatterns = [
+    path("auth/session/", SessionView.as_view()),
+    path("auth/login/", LoginView.as_view()),
+    path("auth/signup/", SignupView.as_view()),
+    path("auth/logout/", LogoutView.as_view()),
+    path("auth/invites/", InviteView.as_view()),
     path("", include(router.urls)),
     path("today/", TodayView.as_view(), name="today"),
     path("food-lookup/<str:barcode>/", BarcodeLookupView.as_view(), name="food-lookup"),
