@@ -77,7 +77,7 @@ Single weights repeat across all sets; comma-separated weights map set-by-set; p
 
 The note text is kept as an on-device draft until you confirm. Preview and import require a connection to the Pi. A confirmed import is retry-safe if its response is lost, but intentionally importing the same note again as a new import will duplicate those workouts.
 
-Upper, Lower, and Full Body workout options are based on the provided sheets. Full Body A and B share ten optional rows: chest, traps, lats, quads, hamstrings, abs, calves, biceps, triceps, and shoulders. Every row is optional; a template row is saved only after its first logged set, and the completed exercise order follows the first-set timestamps. Empty rows are omitted from Progress. A weight entered as `2.25 plates` stays in that notation rather than being converted to pounds, because machines and bars differ.
+Upper, Lower, and Full Body workout options are based on the provided sheets. Full Body A and B share eleven optional rows: chest, traps, lats, quads, hamstrings, glutes, abs, calves, biceps, triceps, and shoulders. Every row is optional; a template row is saved only after its first logged set, and the completed exercise order follows the first-set timestamps. Empty rows are omitted from Progress. A weight entered as `2.25 plates` stays in that notation rather than being converted to pounds, because machines and bars differ.
 
 Choose **Add new exercise…** in an exercise dropdown, type the name, and tap **Save option** to select it and remember it in that exercise group. Saving an option does not log a set. New options are queued offline and saved to the Pi's exercise catalog when connected, so they remain available after restarting the app and on other devices.
 

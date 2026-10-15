@@ -26,7 +26,7 @@ describe('exercise catalog', () => {
   it('groups full-body variations and saved machines into the provided optional rows', () => {
     const slots = slotsForWorkout('Full Body A');
     expect(slotsForWorkout('Full Body B')).toEqual(slots);
-    expect(slots.length).toBe(10);
+    expect(slots.length).toBe(11);
     expect(slotsForWorkout('Custom full body day')).toEqual([]);
     expect(slotsForWorkout('Full Body')).toEqual([]);
     expect(slotsForWorkout('Upper A').map((slot) => slot.id)).not.toContain('quads');

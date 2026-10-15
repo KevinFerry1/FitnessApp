@@ -55,7 +55,7 @@ describe('AppComponent', () => {
   });
 
   for (const name of ['Full Body A', 'Full Body B']) {
-    it(`shows the ten optional full-body rows after starting ${name}`, async () => {
+    it(`shows the eleven optional full-body rows after starting ${name}`, async () => {
       const fixture = TestBed.createComponent(AppComponent);
       const app = fixture.componentInstance;
       spyOn(app, 'ngOnInit').and.stub();
@@ -68,9 +68,9 @@ describe('AppComponent', () => {
       const root: HTMLElement = fixture.nativeElement;
       expect(root.querySelector('.active-workout-head h2')?.textContent).toBe(name);
       expect([...root.querySelectorAll('.training-group')].map((group) => group.textContent)).toEqual([
-        'Chest', 'Traps / chest-supported row', 'Lats', 'Quads', 'Hamstrings', 'Abs', 'Calves', 'Bicep', 'Triceps', 'Shoulder',
+        'Chest', 'Traps / chest-supported row', 'Lats', 'Quads', 'Hamstrings', 'Glutes', 'Abs', 'Calves', 'Bicep', 'Triceps', 'Shoulder',
       ]);
-      expect(root.querySelectorAll('.training-order').length).toBe(10);
+      expect(root.querySelectorAll('.training-order').length).toBe(11);
       expect([...root.querySelectorAll('.training-order')].every((row) => row.textContent === 'OPTIONAL')).toBeTrue();
       expect(app.activeWorkout()!.workout_exercises).toEqual([]);
     });
@@ -194,7 +194,7 @@ describe('AppComponent', () => {
       workout_exercises: [{ id: 'row', exercise: { id: 'machine', name: 'New row machine' }, notes: '',
         sets: [{ id: 'set', set_number: 1, weight: 60, weight_unit: 'lb', reps: 8 }] }] });
     const rows = app.workoutRows(app.activeWorkout()!);
-    expect(rows.length).toBe(10);
+    expect(rows.length).toBe(11);
     expect(rows[0].family).toBe('chest_supported_row');
     expect(rows[0].options).toContain('Chest supported row');
   });
@@ -234,6 +234,35 @@ describe('AppComponent', () => {
     app.reviewImportsOnly = true;
     expect(app.visibleWorkoutHistory.map((day) => day.id)).toEqual([1]);
   });
+
+  for (const scenario of ['synced', 'pending', 'storage unavailable'] as const) {
+    it(`handles a newer server set in an active workout with ${scenario} local state`, async () => {
+      const app = TestBed.createComponent(AppComponent).componentInstance;
+      const workout = { id: 151, client_id: 'active', sync_revision: 7, name: 'Full Body A',
+        started_at: '2026-10-14T20:18:26Z', completed_at: null, workout_exercises: [] };
+      const draft = app['workoutToDraft'](workout);
+      app['currentDraft'] = draft;
+      app['serverWorkouts'] = [{ ...workout, sync_revision: 8, workout_exercises: [{ id: 1,
+        exercise: { id: 1, name: 'Hip thrust' }, notes: '',
+        sets: [{ id: 1, set_number: 1, weight: '2.25', weight_unit: 'plate', reps: 8 }] }] }];
+      const cache = spyOn(app.offline, 'cache').and.resolveTo();
+      const pending = spyOn(app.offline, 'getPending');
+      if (scenario === 'storage unavailable') pending.and.rejectWith(new Error('Storage unavailable'));
+      else pending.and.resolveTo(scenario === 'pending'
+        ? [{ id: 'active', kind: 'workout', payload: draft, createdAt: 1 }] : []);
+      await app['applyLocalState']();
+      if (scenario === 'synced') {
+        expect(app.activeWorkout()!.workout_exercises[0].exercise.name).toBe('Hip thrust');
+        expect(app.activeWorkout()!.workout_exercises[0].sets[0].weight).toBe(2.25);
+        expect(app['currentDraft']!.revision).toBe(8);
+        expect(cache).toHaveBeenCalledWith('activeDraft', app['currentDraft']);
+      } else {
+        expect(app.activeWorkout()!.workout_exercises).toEqual([]);
+        expect(app['currentDraft']!.revision).toBe(7);
+        expect(cache).not.toHaveBeenCalled();
+      }
+    });
+  }
 
   it('shows a similarly named historical exercise beneath a current option', () => {
     const app = TestBed.createComponent(AppComponent).componentInstance;

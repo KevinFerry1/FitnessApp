@@ -41,6 +41,7 @@ export const FULL_BODY_SLOTS: ExerciseSlot[] = [
   { id: 'lats', label: 'Lats', families: ['lower_lat', 'upper_lat'], options: ['Lat pulldown', 'JPG', 'Pull-ups', 'Cable close grip row'] },
   { id: 'quads', label: 'Quads', families: ['quad_compound', 'leg_extension'], options: ['Hack squat', 'Leg extension', 'Pendulum squat', 'Leg press'] },
   { id: 'hamstrings', label: 'Hamstrings', families: ['hamstring_extension', 'leg_curl'], options: ['45 degree hamstring extension', 'Leg curl'] },
+  { id: 'hip_thrust', label: 'Glutes', options: ['Hip thrust'] },
   { id: 'abs', label: 'Abs', options: ['Standing cable crunch', 'Decline sit ups', 'Ab crunch machine'] },
   { id: 'calf_raise', label: 'Calves', options: ['Standing calf raise'] },
   { id: 'bicep', label: 'Bicep', options: ['Preacher curl', 'DB incline curl', 'Standing DB curl'] },

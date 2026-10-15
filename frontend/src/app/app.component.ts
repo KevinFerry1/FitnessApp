@@ -1289,7 +1289,8 @@ export class AppComponent implements OnInit, OnDestroy {
 
   private async applyLocalState(): Promise<void> {
     let pending: PendingChange[] = [];
-    try { pending = await this.offline.getPending(); } catch { /* Online-only fallback. */ }
+    let pendingLoaded = false;
+    try { pending = await this.offline.getPending(); pendingLoaded = true; } catch { /* Online-only fallback. */ }
     const today = structuredClone(this.serverToday);
     today.nutrition = { ...today.nutrition, sugar: today.nutrition.sugar ?? 0,
       added_sugar: today.nutrition.added_sugar ?? 0, sugar_unknown_count: today.nutrition.sugar_unknown_count ?? 0,
@@ -1382,9 +1383,22 @@ export class AppComponent implements OnInit, OnDestroy {
     this.savedMeals.set(savedMeals);
     if (weights[0]) today.latest_weight = { weight: String(weights[0].weight), unit: weights[0].unit };
     if (this.currentDraft) {
-      const serverMatch = workouts.find((item) => item.client_id === this.currentDraft?.client_id && typeof item.id === 'number');
-      if (serverMatch) this.currentDraft.server_id = serverMatch.id as number;
-      applyWorkout(this.currentDraft);
+      const draft = this.currentDraft;
+      const serverMatch = this.serverWorkouts.find((item) => typeof item.id === 'number' &&
+        (item.client_id === draft.client_id || item.id === draft.server_id));
+      if (serverMatch) {
+        draft.server_id = serverMatch.id as number;
+        const hasPendingWorkout = pending.some((item) => {
+          if (item.kind !== 'workout' && item.kind !== 'workout_delete') return false;
+          const payload = item.payload as { client_id?: string; workout_client_id?: string; server_id?: number };
+          return payload.client_id === draft.client_id || payload.workout_client_id === draft.client_id || payload.server_id === serverMatch.id;
+        });
+        if (pendingLoaded && !hasPendingWorkout && (serverMatch.sync_revision ?? 0) > draft.revision) {
+          this.currentDraft = serverMatch.completed_at ? null : this.workoutToDraft(serverMatch);
+          await this.offline.cache('activeDraft', this.currentDraft).catch(() => {});
+        }
+      }
+      if (this.currentDraft) applyWorkout(this.currentDraft);
     }
     this.today.set(today);
     this.workouts.set(workouts);
